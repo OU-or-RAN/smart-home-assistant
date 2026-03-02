@@ -2,6 +2,7 @@
    Features:
    - SNTP time synchronization
    - RGB LED control on GPIO48 (WS2812B)
+   - DHT11 temperature & humidity sensor
    - JSON format communication
 */
 
@@ -37,8 +38,7 @@
 
 static const char *TAG = "smart_home_s3";
 
-// ==================== LED 配置 ====================
-// YD-ESP32-S3 V1.4 使用 GPIO48 连接 WS2812B RGB LED
+// ==================== 硬件配置 ====================
 #define LED_STRIP_GPIO      GPIO_NUM_48
 #define LED_STRIP_NUM_LEDS  1
 
@@ -74,45 +74,36 @@ static void set_led_color(int r, int g, int b);
 static void set_led_state(int on);
 static char* build_status_json(void);
 static void sensor_read_task(void *pvParameters);
+static void status_publish_task(void *pvParameters);
 static void parse_control_json(const char *json_str, esp_mqtt_client_handle_t client);
 static void publish_status(esp_mqtt_client_handle_t client);
 
 // ==================== LED 控制函数 ====================
 
-/**
- * @brief 初始化 WS2812B LED (led_strip v3.x API)
- */
 static void led_strip_init(void)
 {
-    // LED Strip 配置 (v3.x API)
     led_strip_config_t strip_config = {
         .strip_gpio_num = LED_STRIP_GPIO,
         .max_leds = LED_STRIP_NUM_LEDS,
     };
 
-    // RMT 配置 (v3.x API)
     led_strip_rmt_config_t rmt_config = {
         .clk_src = RMT_CLK_SRC_DEFAULT,
-        .resolution_hz = 10 * 1000 * 1000, // 10MHz
+        .resolution_hz = 10 * 1000 * 1000,
         .flags.with_dma = false,
     };
 
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &g_led_strip));
     
-    // 初始关闭
     set_led_color(0, 0, 0);
     
     ESP_LOGI(TAG, "WS2812B LED initialized on GPIO%d", LED_STRIP_GPIO);
 }
 
-/**
- * @brief 设置 LED 颜色
- */
 static void set_led_color(int r, int g, int b)
 {
     if (g_led_strip == NULL) return;
     
-    // 限制范围 0-255
     r = (r < 0) ? 0 : (r > 255) ? 255 : r;
     g = (g < 0) ? 0 : (g > 255) ? 255 : g;
     b = (b < 0) ? 0 : (b > 255) ? 255 : b;
@@ -121,26 +112,20 @@ static void set_led_color(int r, int g, int b)
     g_led_g = g;
     g_led_b = b;
     
-    // 计算亮度
-    g_led_brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+    g_led_brightness = (int)(0.299 * r + 0.587 * g + 0.114 * b);
     
-    // 设置像素颜色 (GRB 顺序)
     ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, 0, r, g, b));
     ESP_ERROR_CHECK(led_strip_refresh(g_led_strip));
     
     ESP_LOGI(TAG, "LED color set to R:%d G:%d B:%d", r, g, b);
 }
 
-/**
- * @brief 设置 LED 开关状态
- * @param on 1=白色开启, 0=关闭
- */
 static void set_led_state(int on)
 {
     if (on) {
-        set_led_color(255, 255, 255);  // 白色
+        set_led_color(255, 255, 255);
     } else {
-        set_led_color(0, 0, 0);        // 关闭
+        set_led_color(0, 0, 0);
     }
 }
 
@@ -152,14 +137,10 @@ static void time_sync_notification_cb(struct timeval *tv)
     g_time_synced = true;
 }
 
-/**
- * @brief 初始化 SNTP (使用新的 esp_sntp API)
- */
 static void initialize_sntp(void)
 {
     ESP_LOGI(TAG, "Initializing SNTP");
     
-    // 使用新的 esp_sntp API (ESP-IDF v5.x)
     esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, SNTP_SERVER);
     esp_sntp_set_time_sync_notification_cb(time_sync_notification_cb);
@@ -167,9 +148,6 @@ static void initialize_sntp(void)
     esp_sntp_init();
 }
 
-/**
- * @brief 获取网络时间
- */
 static void obtain_time(void)
 {
     initialize_sntp();
@@ -184,7 +162,6 @@ static void obtain_time(void)
     if (retry >= retry_count) {
         ESP_LOGW(TAG, "Failed to sync time");
     } else {
-        // 设置时区
         setenv("TZ", TIMEZONE, 1);
         tzset();
         
@@ -195,9 +172,6 @@ static void obtain_time(void)
     }
 }
 
-/**
- * @brief 获取当前时间戳（秒级）
- */
 static time_t get_timestamp(void)
 {
     return time(NULL);
@@ -205,9 +179,6 @@ static time_t get_timestamp(void)
 
 // ==================== JSON 处理 ====================
 
-/**
- * @brief 构建状态上报 JSON 数据（包含格式化时间）
- */
 static char* build_status_json(void)
 {
     cJSON *root = cJSON_CreateObject();
@@ -222,28 +193,33 @@ static char* build_status_json(void)
     struct tm timeinfo;
     localtime_r(&now, &timeinfo);
     
-    // 格式化时间为 ISO 8601 格式: 2026-03-02T12:30:45+08:00
     char time_str[64];
     strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%S", &timeinfo);
     
-    // 添加时区偏移 (例如: +08:00)
-    int tz_offset = 8;  // 中国标准时间 UTC+8
+    int tz_offset = 8;
     char tz_str[10];
     snprintf(tz_str, sizeof(tz_str), "+%02d:00", tz_offset);
     strcat(time_str, tz_str);
-    // 获取 DHT11 数据（转换为浮点数）
+    
+    // 获取 DHT11 数据
     float temperature = dht11_get_temperature(&g_dht11_data);
     float humidity = dht11_get_humidity(&g_dht11_data);
     
     cJSON_AddStringToObject(root, "device_id", DEVICE_ID);
     cJSON_AddStringToObject(root, "type", DEVICE_TYPE);
-    cJSON_AddNumberToObject(root, "timestamp", (double)now);           // 保留原始时间戳
-    cJSON_AddStringToObject(root, "datetime", time_str);               // 添加格式化时间
+    cJSON_AddNumberToObject(root, "timestamp", (double)now);
+    cJSON_AddStringToObject(root, "datetime", time_str);
     
-    cJSON_AddNumberToObject(data, "temperature", temperature);
-    cJSON_AddNumberToObject(data, "humidity", (int)humidity);  // DHT11湿度是整数
+    // 如果 DHT11 数据有效，使用真实数据；否则使用默认值
+    if (g_dht11_data.valid && temperature > -100) {
+        cJSON_AddNumberToObject(data, "temperature", temperature);
+        cJSON_AddNumberToObject(data, "humidity", (int)humidity);
+    } else {
+        cJSON_AddNumberToObject(data, "temperature", 25.0);
+        cJSON_AddNumberToObject(data, "humidity", 50);
+        cJSON_AddStringToObject(data, "sensor_status", "offline");
+    }
     
-    // LED 状态
     cJSON *led_obj = cJSON_CreateObject();
     cJSON_AddNumberToObject(led_obj, "state", g_led_brightness > 0 ? 1 : 0);
     cJSON_AddNumberToObject(led_obj, "r", g_led_r);
@@ -260,30 +236,50 @@ static char* build_status_json(void)
     return json_str;
 }
 
+// ==================== DHT11 传感器任务 ====================
+
 static void sensor_read_task(void *pvParameters)
 {
-    // 初始化 DHT11
     ESP_ERROR_CHECK(dht11_init());
     
-    // 首次读取前等待2秒（DHT11上电需要稳定时间）
+    // 首次读取前等待2秒（DHT11上电稳定时间）
     vTaskDelay(2000 / portTICK_PERIOD_MS);
     
     while (1) {
-        // 读取 DHT11 数据
         esp_err_t ret = dht11_read(&g_dht11_data);
         
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "DHT11 read failed: %s", esp_err_to_name(ret));
-            // 标记数据无效
             g_dht11_data.valid = false;
-        } else {
-            ESP_LOGI(TAG, "DHT11: Temp=%.1f°C, Hum=%.1f%%",
-                     dht11_get_temperature(&g_dht11_data),
-                     dht11_get_humidity(&g_dht11_data));
+            // 失败时延长等待时间，让传感器复位
+            vTaskDelay(3000 / portTICK_PERIOD_MS);
+            continue;
         }
         
-        // DHT11 最小采样间隔为2秒
-        vTaskDelay(5000 / portTICK_PERIOD_MS);  // 每5秒读取一次
+        ESP_LOGI(TAG, "DHT11: Temp=%.1f°C, Hum=%.1f%%",
+                 dht11_get_temperature(&g_dht11_data),
+                 dht11_get_humidity(&g_dht11_data));
+        
+        // DHT11 最小采样间隔为2秒，这里每5秒读取一次
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+    }
+}
+
+// ==================== MQTT 状态上报任务 ====================
+
+static void status_publish_task(void *pvParameters)
+{
+    esp_mqtt_client_handle_t client = (esp_mqtt_client_handle_t)pvParameters;
+    
+    // 等待 MQTT 连接和初始数据收集
+    vTaskDelay(5000 / portTICK_PERIOD_MS);
+    
+    while (1) {
+        // 上报当前状态（包含 DHT11 数据）
+        publish_status(client);
+        
+        // 每 30 秒上报一次
+        vTaskDelay(30000 / portTICK_PERIOD_MS);
     }
 }
 
@@ -393,22 +389,6 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
     }
 }
 
-// ==================== 任务 ====================
-
-static void status_publish_task(void *pvParameters)
-{
-    esp_mqtt_client_handle_t client = (esp_mqtt_client_handle_t)pvParameters;
-    vTaskDelay(5000 / portTICK_PERIOD_MS);
-    
-    while (1) {
-        g_temperature = 20.0 + (float)(esp_random() % 100) / 10.0;
-        g_humidity = 40 + esp_random() % 40;
-        
-        publish_status(client);
-        vTaskDelay(30000 / portTICK_PERIOD_MS);
-    }
-}
-
 // ==================== 主函数 ====================
 
 static void mqtt_app_start(void)
@@ -421,6 +401,8 @@ static void mqtt_app_start(void)
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
     
+    // 创建两个任务：传感器读取 + 状态上报
+    xTaskCreate(sensor_read_task, "sensor_task", 4096, NULL, 4, NULL);
     xTaskCreate(status_publish_task, "status_task", 4096, client, 5, NULL);
 }
 
