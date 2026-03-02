@@ -1,0 +1,114 @@
+# ============================================
+# 1. ESP-IDF 构建产物（必须忽略）
+# ============================================
+**/build/
+build/
+*.bin
+*.elf
+*.map
+flasher_args.json
+
+# ESP-IDF 生成的配置（实际配置，个人化）
+sdkconfig
+sdkconfig.old
+
+# 但保留模板（用于重建）
+!sdkconfig.defaults
+!sdkconfig.defaults.*
+
+# 组件管理
+managed_components/
+dependencies.lock
+
+# ============================================
+# 2. Python 环境（你后期要用的）
+# ============================================
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+*.egg
+*.whl
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+# 大模型文件（提前防护，避免后期误提交）
+*.gguf
+*.bin
+*.onnx
+*.pth
+*.pt
+*.safetensors
+*.ckpt
+*.h5
+*.pb
+*.tflite
+*.mlmodel
+
+# Python 测试和缓存
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ============================================
+# 3. IDE 和编辑器（Win11 + VS Code）
+# ============================================
+# VS Code 个人设置（团队共享的保留）
+.vscode/settings.json
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/tasks.json
+
+# 但保留工作区文件（重要！）
+!.vscode/*.code-workspace
+
+# 其他 IDE
+.idea/
+*.suo
+*.user
+*.sln.docstates
+
+# 语言服务器（自动生成）
+.clangd/
+.ccls-cache/
+compile_commands.json
+
+# ============================================
+# 4. 临时文件和日志（通用）
+# ============================================
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Windows 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============================================
+# 5. 运行时数据（后期创建，现在预留）
+# ============================================
+data/logs/*
+data/db/*
+!data/logs/.gitkeep
+!data/db/.gitkeep
+
+# ============================================
+# 6. 敏感信息（绝不提交）
+# ============================================
+.env
+.env.local
+.env.production
+secrets.yaml
+secrets.json
+*.key
+*.pem
+*.crt
