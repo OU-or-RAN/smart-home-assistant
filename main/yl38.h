@@ -6,17 +6,8 @@
 #include "esp_err.h"
 
 // 配置
-#ifndef CONFIG_YL38_AO_GPIO
-#define YL38_AO_GPIO        9
-#else
-#define YL38_AO_GPIO        CONFIG_YL38_AO_GPIO
-#endif
-
-#ifndef CONFIG_YL38_DO_GPIO
-#define YL38_DO_GPIO        8
-#else
-#define YL38_DO_GPIO        CONFIG_YL38_DO_GPIO
-#endif
+// GPIO 定义 - 通过 pin_config.h 配置
+#include "pin_config.h"
 
 #define YL38_ADC_WIDTH      ADC_BITWIDTH_12
 #define YL38_ADC_ATTEN      ADC_ATTEN_DB_12

@@ -9,7 +9,6 @@
 static const char *TAG = "dht11";
 
 // ==================== 配置 ====================
-#define DHT11_GPIO              CONFIG_DHT11_GPIO  // 通过 menuconfig 配置，默认 GPIO4
 #define DHT11_MAX_RETRY         3                   // 最大重试次数
 #define DHT11_RETRY_DELAY_MS    2000                // 重试间隔
 

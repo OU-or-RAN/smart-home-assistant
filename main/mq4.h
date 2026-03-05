@@ -6,18 +6,9 @@
 #include "esp_err.h"
 
 // ==================== 配置 ====================
-// 通过 menuconfig 或此处修改
-#ifndef CONFIG_MQ4_AO_GPIO
-#define MQ4_AO_GPIO         7       // 模拟输出接 GPIO7 (ADC1_CH6)
-#else
-#define MQ4_AO_GPIO         CONFIG_MQ4_AO_GPIO
-#endif
 
-#ifndef CONFIG_MQ4_DO_GPIO
-#define MQ4_DO_GPIO         6       // 数字输出接 GPIO6
-#else
-#define MQ4_DO_GPIO         CONFIG_MQ4_DO_GPIO
-#endif
+//enter pin_config.h for GPIO definitions
+#include "pin_config.h"
 
 // ADC 配置 - ESP-IDF 5.0+ 新 API
 #define MQ4_ADC_WIDTH       ADC_BITWIDTH_12     // 12位分辨率 (0-4095)

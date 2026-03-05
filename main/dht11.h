@@ -4,11 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "esp_err.h"
+#include "pin_config.h"
 
-// 默认 GPIO 配置（可通过 menuconfig 覆盖）
-#ifndef CONFIG_DHT11_GPIO
-#define CONFIG_DHT11_GPIO   4
-#endif
 
 typedef struct {
     uint8_t humidity_int;
