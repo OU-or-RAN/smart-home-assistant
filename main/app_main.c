@@ -4,6 +4,7 @@
    - RGB LED control on GPIO48 (WS2812B)
    - DHT11 temperature & humidity sensor
    - MQ-4 methane gas sensor
+   - YL-38 flame sensor
    - JSON format communication
 */
 
@@ -48,7 +49,7 @@ static const char *TAG = "smart_home_s3";
 // ==================== MQTT 主题配置 ====================
 #define TOPIC_STATUS        "smart_home/s3/s3_001/status"
 #define TOPIC_CONTROL       "smart_home/s3/s3_001/control"
-#define TOPIC_GAS_ALERT     "smart_home/s3/s3_001/gas_alert"  // 新增：气体报警专用主题
+#define TOPIC_GAS_ALERT     "smart_home/s3/s3_001/gas_alert"
 #define TOPIC_FLAME_STATUS  "smart_home/s3/s3_001/flame"
 
 // ==================== 设备信息 ====================
@@ -63,16 +64,24 @@ static const char *TAG = "smart_home_s3";
 static dht11_data_t g_dht11_data = {0};
 static bool  g_time_synced = false;
 static mq4_data_t g_mq4_data = {0};
-static bool g_mq4_initialized = false;  // 新增：MQ-4 初始化标志
+static bool g_mq4_initialized = false;
+static bool g_mq4_alert_active = false;  // MQ-4 报警状态（基于ppm）
 static yl38_data_t g_yl38_data = {0};
 static bool g_yl38_initialized = false;
+static SemaphoreHandle_t g_led_mutex = NULL;
+static volatile int g_led_priority = 0;
+
+// LED 优先级定义
+#define LED_PRIO_NONE   0
+#define LED_PRIO_FLAME  1
+#define LED_PRIO_GAS    2
 
 // LED 状态
 static int   g_led_r = 0;
 static int   g_led_g = 0;
 static int   g_led_b = 0;
 static int   g_led_brightness = 0;
-static bool g_led_forced_by_gas = false;  // 新增：LED 是否被气体报警强制控制
+static bool g_led_forced_by_gas = false;
 
 static led_strip_handle_t g_led_strip = NULL;
 
@@ -82,16 +91,18 @@ static void obtain_time(void);
 static void led_strip_init(void);
 static void set_led_color(int r, int g, int b);
 static void set_led_state(int on);
-static void restore_led_normal(void);  // 新增：恢复正常 LED 状态
+static void restore_led_normal(void);
 static char* build_status_json(void);
 static void sensor_read_task(void *pvParameters);
 static void status_publish_task(void *pvParameters);
 static void parse_control_json(const char *json_str, esp_mqtt_client_handle_t client);
 static void publish_status(esp_mqtt_client_handle_t client);
-static void publish_gas_alert(esp_mqtt_client_handle_t client, float ppm, bool alert);  // 新增
+static void publish_gas_alert(esp_mqtt_client_handle_t client, float ppm, bool alert);
 static void mq4_read_task(void *pvParameters);
-static void yl38_read_task(void *pvParameters);  // 新增：火焰传感器任务
-
+static void yl38_read_task(void *pvParameters);
+static bool set_led_color_with_priority(int r, int g, int b, int priority);
+static void set_led_gas_alert(bool alert);
+static void set_led_flame_alert(bool alert, yl38_flame_level_t level);
 
 // ==================== LED 控制函数 ====================
 
@@ -115,10 +126,21 @@ static void led_strip_init(void)
     ESP_LOGI(TAG, "WS2812B LED initialized on GPIO%d", LED_STRIP_GPIO);
 }
 
-static void set_led_color(int r, int g, int b)
+static bool set_led_color_with_priority(int r, int g, int b, int priority)
 {
-    if (g_led_strip == NULL) return;
+    if (g_led_strip == NULL) return false;
     
+    xSemaphoreTake(g_led_mutex, portMAX_DELAY);
+    
+    // 检查优先级：高优先级可以抢占，低优先级不能覆盖高优先级
+    if (priority < g_led_priority && g_led_priority != LED_PRIO_NONE) {
+        ESP_LOGD(TAG, "LED control rejected, current priority %d > requested %d", 
+                 g_led_priority, priority);
+        xSemaphoreGive(g_led_mutex);
+        return false;
+    }
+    
+    // 执行颜色设置
     r = (r < 0) ? 0 : (r > 255) ? 255 : r;
     g = (g < 0) ? 0 : (g > 255) ? 255 : g;
     b = (b < 0) ? 0 : (b > 255) ? 255 : b;
@@ -126,14 +148,27 @@ static void set_led_color(int r, int g, int b)
     g_led_r = r;
     g_led_g = g;
     g_led_b = b;
-    
     g_led_brightness = (int)(0.299 * r + 0.587 * g + 0.114 * b);
-    g_led_forced_by_gas = false;  // 手动设置颜色时解除强制标志
+    g_led_priority = priority;
+    
+    if (priority == LED_PRIO_NONE) {
+        g_led_forced_by_gas = false;
+    } else if (priority == LED_PRIO_GAS) {
+        g_led_forced_by_gas = true;
+    }
     
     ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, 0, r, g, b));
     ESP_ERROR_CHECK(led_strip_refresh(g_led_strip));
     
-    ESP_LOGI(TAG, "LED color set to R:%d G:%d B:%d", r, g, b);
+    xSemaphoreGive(g_led_mutex);
+    
+    ESP_LOGI(TAG, "LED set to R:%d G:%d B:%d (priority:%d)", r, g, b, priority);
+    return true;
+}
+
+static void set_led_color(int r, int g, int b)
+{
+    set_led_color_with_priority(r, g, b, LED_PRIO_NONE);
 }
 
 static void set_led_state(int on)
@@ -145,32 +180,49 @@ static void set_led_state(int on)
     }
 }
 
-// 新增：设置报警 LED（带强制标志）
 static void set_led_gas_alert(bool alert)
 {
-    if (g_led_strip == NULL) return;
-    
     if (alert) {
-        g_led_forced_by_gas = true;
-        g_led_r = 255;
-        g_led_g = 0;
-        g_led_b = 0;
-        g_led_brightness = 255;
-        
-        ESP_ERROR_CHECK(led_strip_set_pixel(g_led_strip, 0, 255, 0, 0));
-        ESP_ERROR_CHECK(led_strip_refresh(g_led_strip));
-        ESP_LOGW(TAG, "LED set to ALERT RED (gas detected)");
-    } else if (g_led_forced_by_gas) {
-        // 只有之前是被气体强制控制的才恢复
-        restore_led_normal();
+        set_led_color_with_priority(255, 0, 0, LED_PRIO_GAS);
+    } else {
+        xSemaphoreTake(g_led_mutex, portMAX_DELAY);
+        if (g_led_priority == LED_PRIO_GAS) {
+            g_led_priority = LED_PRIO_NONE;
+            g_led_forced_by_gas = false;
+            set_led_color_with_priority(0, 0, 0, LED_PRIO_NONE);
+        }
+        xSemaphoreGive(g_led_mutex);
     }
 }
 
-// 新增：恢复正常 LED 状态（关闭或默认颜色）
+static void set_led_flame_alert(bool alert, yl38_flame_level_t level)
+{
+    if (alert) {
+        xSemaphoreTake(g_led_mutex, portMAX_DELAY);
+        if (g_led_priority >= LED_PRIO_GAS) {
+            ESP_LOGD(TAG, "Flame alert suppressed by gas alert");
+            xSemaphoreGive(g_led_mutex);
+            return;
+        }
+        xSemaphoreGive(g_led_mutex);
+        
+        int r = 255, g = (level == YL38_FLAME_WEAK) ? 255 : 
+                       (level == YL38_FLAME_MEDIUM) ? 100 : 0;
+        set_led_color_with_priority(r, g, 0, LED_PRIO_FLAME);
+    } else {
+        xSemaphoreTake(g_led_mutex, portMAX_DELAY);
+        if (g_led_priority == LED_PRIO_FLAME) {
+            g_led_priority = LED_PRIO_NONE;
+            set_led_color_with_priority(0, 0, 0, LED_PRIO_NONE);
+        }
+        xSemaphoreGive(g_led_mutex);
+    }
+}
+
 static void restore_led_normal(void)
 {
     g_led_forced_by_gas = false;
-    set_led_color(0, 0, 0);  // 默认关闭，或改为其他默认状态
+    set_led_color(0, 0, 0);
     ESP_LOGI(TAG, "LED restored to normal state");
 }
 
@@ -244,10 +296,8 @@ static char* build_status_json(void)
     int tz_offset = 8;
     char tz_str[10];
     snprintf(tz_str, sizeof(tz_str), "+%02d:00", tz_offset);
-    // 安全拼接，避免缓冲区溢出
     strncat(time_str, tz_str, sizeof(time_str) - strlen(time_str) - 1);
     
-    // 获取 DHT11 数据
     float temperature = dht11_get_temperature(&g_dht11_data);
     float humidity = dht11_get_humidity(&g_dht11_data);
     
@@ -256,7 +306,6 @@ static char* build_status_json(void)
     cJSON_AddNumberToObject(root, "timestamp", (double)now);
     cJSON_AddStringToObject(root, "datetime", time_str);
     
-    // 如果 DHT11 数据有效，使用真实数据；否则使用默认值
     if (g_dht11_data.valid && temperature > -100) {
         cJSON_AddNumberToObject(data, "temperature", temperature);
         cJSON_AddNumberToObject(data, "humidity", (int)humidity);
@@ -266,12 +315,12 @@ static char* build_status_json(void)
         cJSON_AddStringToObject(data, "dht11_status", "offline");
     }
 
-    // MQ-4 气体数据（检查是否已初始化）
+    // MQ-4 气体数据 - 修复：使用 g_mq4_alert_active 而不是 digital_alert
     cJSON *gas_obj = cJSON_CreateObject();
     if (g_mq4_initialized) {
         cJSON_AddNumberToObject(gas_obj, "ppm", g_mq4_data.ppm);
         cJSON_AddNumberToObject(gas_obj, "raw_adc", g_mq4_data.raw_value);
-        cJSON_AddBoolToObject(gas_obj, "alert", g_mq4_data.digital_alert);
+        cJSON_AddBoolToObject(gas_obj, "alert", g_mq4_alert_active);  // 修复：使用 ppm 判断的状态
         cJSON_AddBoolToObject(gas_obj, "calibrated", g_mq4_data.calibrated);
         cJSON_AddStringToObject(gas_obj, "status", "active");
     } else {
@@ -280,7 +329,7 @@ static char* build_status_json(void)
     }
     cJSON_AddItemToObject(data, "gas", gas_obj);
     
-    // 新增：YL-38 火焰数据
+    // YL-38 火焰数据
     cJSON *flame_obj = cJSON_CreateObject();
     if (g_yl38_initialized) {
         cJSON_AddNumberToObject(flame_obj, "raw", g_yl38_data.raw_value);
@@ -300,7 +349,7 @@ static char* build_status_json(void)
     cJSON_AddNumberToObject(led_obj, "g", g_led_g);
     cJSON_AddNumberToObject(led_obj, "b", g_led_b);
     cJSON_AddNumberToObject(led_obj, "brightness", g_led_brightness);
-    cJSON_AddBoolToObject(led_obj, "forced_alert", g_led_forced_by_gas);  // 新增：报警状态标志
+    cJSON_AddBoolToObject(led_obj, "forced_alert", g_led_forced_by_gas);
     cJSON_AddItemToObject(data, "led", led_obj);
     
     cJSON_AddItemToObject(root, "data", data);
@@ -317,7 +366,6 @@ static void sensor_read_task(void *pvParameters)
 {
     ESP_ERROR_CHECK(dht11_init());
     
-    // 首次读取前等待2秒（DHT11上电稳定时间）
     vTaskDelay(2000 / portTICK_PERIOD_MS);
     
     while (1) {
@@ -326,7 +374,6 @@ static void sensor_read_task(void *pvParameters)
         if (ret != ESP_OK) {
             ESP_LOGE(TAG, "DHT11 read failed: %s", esp_err_to_name(ret));
             g_dht11_data.valid = false;
-            // 失败时延长等待时间，让传感器复位
             vTaskDelay(3000 / portTICK_PERIOD_MS);
             continue;
         }
@@ -335,25 +382,21 @@ static void sensor_read_task(void *pvParameters)
                  dht11_get_temperature(&g_dht11_data),
                  dht11_get_humidity(&g_dht11_data));
         
-        // DHT11 最小采样间隔为2秒，这里每5秒读取一次
         vTaskDelay(5000 / portTICK_PERIOD_MS);
     }
 }
 
-// ==================== MQ-4 任务（优化版） ====================
+// ==================== MQ-4 任务 ====================
 static void mq4_read_task(void *pvParameters)
 {
-    // 初始化 MQ-4
     esp_err_t ret = mq4_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "MQ-4 init failed: %s", esp_err_to_name(ret));
-        vTaskDelete(NULL);  // 初始化失败，删除任务
+        vTaskDelete(NULL);
         return;
     }
     
-    // 等待传感器预热（非常重要！MQ-4 需要 2-3 分钟预热）
     ESP_LOGI(TAG, "MQ-4 warming up, waiting 30 seconds...");
-    // 分段延时，避免看门狗复位
     for (int i = 0; i < 30; i++) {
         vTaskDelay(pdMS_TO_TICKS(1000));
         if (i % 10 == 0) {
@@ -361,65 +404,57 @@ static void mq4_read_task(void *pvParameters)
         }
     }
     
-    // 在清洁空气中校准（只需执行一次，可保存到 NVS）
     ret = mq4_calibrate(&g_mq4_data);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "MQ-4 calibration failed: %s", esp_err_to_name(ret));
-        // 校准失败也继续运行，使用默认 RO 值
     }
     
-    g_mq4_initialized = true;  // 标记初始化完成
-    ESP_LOGI(TAG, "MQ-4 initialization complete, entering monitoring loop");
+    g_mq4_initialized = true;
+    ESP_LOGI(TAG, "MQ-4 initialization complete");
     
-    bool last_alert_state = false;  // 记录上次报警状态，用于检测变化
+    bool last_alert_state = false;
+    bool blink_state = false;  // 移到循环外，保持闪烁状态
     
     while (1) {
         ret = mq4_read(&g_mq4_data);
         
         if (ret == ESP_OK) {
-            // bool current_alert = g_mq4_data.digital_alert || 
-            //                     (g_mq4_data.ppm > MQ4_DEFAULT_THRESHOLD_PPM);
-            bool current_alert =  (g_mq4_data.ppm > MQ4_DEFAULT_THRESHOLD_PPM);
+            bool current_alert = (g_mq4_data.ppm > MQ4_DEFAULT_THRESHOLD_PPM);
             
             ESP_LOGI(TAG, "MQ-4: PPM=%.1f, Raw=%d, Alert=%s",
-                     g_mq4_data.ppm, 
-                     g_mq4_data.raw_value,
+                     g_mq4_data.ppm, g_mq4_data.raw_value,
                      current_alert ? "YES" : "NO");
             
-            // 报警状态变化时处理
+            // 状态变化时处理
             if (current_alert != last_alert_state) {
                 if (current_alert) {
-                    ESP_LOGW(TAG, "!!! GAS ALERT TRIGGERED !!! PPM=%.1f", g_mq4_data.ppm);
+                    ESP_LOGW(TAG, "!!! GAS ALERT !!! PPM=%.1f", g_mq4_data.ppm);
                     set_led_gas_alert(true);
-                    // 可在这里添加 MQTT 报警推送
+                    g_mq4_alert_active = true;
                 } else {
-                    ESP_LOGI(TAG, "Gas alert cleared, PPM normalized to %.1f", g_mq4_data.ppm);
+                    ESP_LOGI(TAG, "Gas alert cleared, PPM=%.1f", g_mq4_data.ppm);
                     set_led_gas_alert(false);
+                    g_mq4_alert_active = false;
                 }
                 last_alert_state = current_alert;
             }
             
-            // 持续报警时，每秒闪烁 LED（可选）
+            // 持续报警时闪烁（只在状态为报警时执行）
             if (current_alert) {
-                // 简单的闪烁效果
-                static bool blink_state = false;
                 blink_state = !blink_state;
-                if (blink_state) {
-                    set_led_color(255, 0, 0);
-                } else {
-                    set_led_color(100, 0, 0);  // 暗红色
-                }
+                int intensity = blink_state ? 255 : 100;
+                set_led_color_with_priority(intensity, 0, 0, LED_PRIO_GAS);
             }
         } else {
-            ESP_LOGE(TAG, "MQ-4 read failed: %s", esp_err_to_name(ret));
-            g_mq4_data.calibrated = false;  // 标记数据无效
+            ESP_LOGE(TAG, "MQ-4 read failed");
+            g_mq4_data.calibrated = false;
         }
         
-        // MQ-4 读取间隔 2 秒
         vTaskDelay(2000 / portTICK_PERIOD_MS);
     }
 }
 
+// ==================== YL-38 任务 ====================
 static void yl38_read_task(void *pvParameters)
 {
     esp_err_t ret = yl38_init();
@@ -429,56 +464,60 @@ static void yl38_read_task(void *pvParameters)
         return;
     }
     
+    // 执行基线校准（必须在无火焰环境下！）
+    ret = yl38_calibrate_baseline();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "YL-38 calibration failed: %s", esp_err_to_name(ret));
+        // 继续使用默认阈值
+    }
+    
     g_yl38_initialized = true;
-    ESP_LOGI(TAG, "YL-38 ready, starting flame monitoring");
+    ESP_LOGI(TAG, "YL-38 ready");
     
     bool last_flame_state = false;
+    bool blink = false;
     
     while (1) {
         ret = yl38_read(&g_yl38_data);
         
         if (ret == ESP_OK) {
-            ESP_LOGI(TAG, "YL-38: Raw=%d, Volt=%.2fV, Level=%s, Detected=%s",
+            bool current_flame = g_yl38_data.flame_detected;
+            
+            ESP_LOGI(TAG, "YL-38: Raw=%d, Base=%d, Volt=%.2fV, Level=%s, Detected=%s",
                      g_yl38_data.raw_value,
+                     g_yl38_data.baseline_raw,
                      g_yl38_data.voltage,
                      yl38_get_level_string(g_yl38_data.flame_level),
-                     g_yl38_data.flame_detected ? "YES" : "NO");
+                     current_flame ? "YES" : "NO");
             
-            // 火焰状态变化时处理
-            if (g_yl38_data.flame_detected != last_flame_state) {
-                if (g_yl38_data.flame_detected) {
+            // 状态变化处理
+            if (current_flame != last_flame_state) {
+                if (current_flame) {
                     ESP_LOGW(TAG, "!!! FLAME DETECTED !!! Level: %s", 
                              yl38_get_level_string(g_yl38_data.flame_level));
-                    
-                    // 火焰报警：LED 变橙色/红色闪烁
-                    // 如果 MQ-4 没有报警，显示橙色；如果都有，红色优先
-                    if (!g_mq4_data.digital_alert && g_mq4_data.ppm < MQ4_DEFAULT_THRESHOLD_PPM) {
-                        set_led_color(255, 100, 0);  // 橙色
-                    }
+                    set_led_flame_alert(true, g_yl38_data.flame_level);
                 } else {
                     ESP_LOGI(TAG, "Flame cleared");
-                    // 恢复 LED（如果 MQ-4 也没有报警）
-                    if (!g_mq4_data.digital_alert && g_mq4_data.ppm < MQ4_DEFAULT_THRESHOLD_PPM) {
-                        restore_led_normal();
-                    }
+                    set_led_flame_alert(false, YL38_NO_FLAME);
                 }
-                last_flame_state = g_yl38_data.flame_detected;
+                last_flame_state = current_flame;
             }
             
-            // 持续火焰时闪烁
-            if (g_yl38_data.flame_detected) {
-                static bool blink = false;
+            // 持续火焰闪烁
+            if (current_flame) {
                 blink = !blink;
                 int intensity = g_yl38_data.flame_level == YL38_FLAME_STRONG ? 255 : 150;
-                set_led_color(blink ? intensity : intensity/2, 
-                             g_yl38_data.flame_level == YL38_FLAME_STRONG ? 0 : 50, 
-                             0);
+                int g_val = g_yl38_data.flame_level == YL38_FLAME_WEAK ? 255 : 
+                           (g_yl38_data.flame_level == YL38_FLAME_MEDIUM ? 50 : 0);
+                int r_val = blink ? intensity : intensity/2;
+                
+                set_led_color_with_priority(r_val, g_val, 0, LED_PRIO_FLAME);
             }
         } else {
             ESP_LOGE(TAG, "YL-38 read failed");
         }
         
-        vTaskDelay(500 / portTICK_PERIOD_MS);  // 火焰检测需要更快响应，500ms
+        vTaskDelay(500 / portTICK_PERIOD_MS);
     }
 }
 
@@ -488,19 +527,16 @@ static void status_publish_task(void *pvParameters)
 {
     esp_mqtt_client_handle_t client = (esp_mqtt_client_handle_t)pvParameters;
     
-    // 等待 MQTT 连接和初始数据收集
     vTaskDelay(5000 / portTICK_PERIOD_MS);
     
     while (1) {
-        // 上报当前状态（包含 DHT11 和 MQ-4 数据）
         publish_status(client);
-        
-        // 每 30 秒上报一次
         vTaskDelay(30000 / portTICK_PERIOD_MS);
     }
 }
 
-// 新增：发布气体报警（独立主题，便于紧急处理）
+// ==================== 报警推送函数 ====================
+
 static void publish_gas_alert(esp_mqtt_client_handle_t client, float ppm, bool alert)
 {
     cJSON *root = cJSON_CreateObject();
@@ -516,11 +552,13 @@ static void publish_gas_alert(esp_mqtt_client_handle_t client, float ppm, bool a
     cJSON_Delete(root);
     
     if (json_str) {
-        int msg_id = esp_mqtt_client_publish(client, TOPIC_GAS_ALERT, json_str, 0, 2, 0);  // QoS 2 确保送达
+        int msg_id = esp_mqtt_client_publish(client, TOPIC_GAS_ALERT, json_str, 0, 2, 0);
         ESP_LOGW(TAG, "Published gas alert, msg_id=%d", msg_id);
         free(json_str);
     }
 }
+
+// ==================== 控制命令处理 ====================
 
 static void parse_control_json(const char *json_str, esp_mqtt_client_handle_t client)
 {
@@ -562,10 +600,8 @@ static void parse_control_json(const char *json_str, esp_mqtt_client_handle_t cl
                 publish_status(client);
             }
         }
-        // 新增：手动控制 MQ-4 校准（调试用途）
         else if (strcmp(target_str, "mq4_calibrate") == 0) {
             ESP_LOGW(TAG, "Manual MQ-4 calibration triggered via MQTT");
-            // 注意：实际校准需要在清洁空气中执行
             mq4_calibrate(&g_mq4_data);
             publish_status(client);
         }
@@ -647,11 +683,12 @@ static void mqtt_app_start(void)
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
     
-    // 四个任务，优先级：MQTT > 火焰 > 气体 > 温湿度
-    xTaskCreate(sensor_read_task, "dht11_task", 4096, NULL, 3, NULL);  // 降低 DHT11 优先级
-    xTaskCreate(mq4_read_task, "mq4_task", 4096, NULL, 4, NULL);        // MQ-4 中等优先级
-    xTaskCreate(yl38_read_task, "flame_task", 4096, NULL, 5, NULL);  // 火焰优先级高
-    xTaskCreate(status_publish_task, "status_task", 4096, client, 5, NULL);  // MQTT 最高
+    // 修复：优先级调整为 3-5 范围（避免超过默认配置）
+    // 优先级：MQTT(5) > 火焰(4) > 气体(3) > 温湿度(2)
+    xTaskCreate(sensor_read_task, "dht11_task", 4096, NULL, 2, NULL);
+    xTaskCreate(mq4_read_task, "mq4_task", 4096, NULL, 3, NULL);
+    xTaskCreate(yl38_read_task, "flame_task", 4096, NULL, 4, NULL);
+    xTaskCreate(status_publish_task, "status_task", 4096, client, 5, NULL);
 }
 
 void app_main(void)
@@ -660,8 +697,15 @@ void app_main(void)
     
     esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set(TAG, ESP_LOG_DEBUG);
-    esp_log_level_set("mq4", ESP_LOG_DEBUG);  // 新增：查看 MQ-4 详细日志
+    esp_log_level_set("mq4", ESP_LOG_DEBUG);
+    esp_log_level_set("yl38", ESP_LOG_DEBUG);
 
+    g_led_mutex = xSemaphoreCreateMutex();
+    if (g_led_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create LED mutex");
+        return;
+    }
+    
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());

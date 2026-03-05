@@ -11,14 +11,15 @@
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 
+#include "adc_shared.h"  // 共享 ADC 初始化
+
 static const char *TAG = "mq4";
 
 // ==================== 全局变量 ====================
-static adc_oneshot_unit_handle_t g_adc_handle = NULL;   // ADC 单元句柄
 static adc_cali_handle_t g_adc_cali_handle = NULL;      // ADC 校准句柄
 static float g_ro_value = 10.0f;                        // 校准电阻值
 static bool g_is_calibrated = false;                    // 校准标志
-static bool g_adc_initialized = false;                  // ADC 初始化标志
+static bool g_adc_channel_configured = false;           // ADC 通道配置标志
 
 // ==================== 内部函数 ====================
 
@@ -28,57 +29,50 @@ static bool g_adc_initialized = false;                  // ADC 初始化标志
 static adc_channel_t get_adc_channel(int gpio_num)
 {
     switch (gpio_num) {
-        case 0: return ADC_CHANNEL_0;
-        case 1: return ADC_CHANNEL_1;
-        case 2: return ADC_CHANNEL_2;
-        case 3: return ADC_CHANNEL_3;
-        case 4: return ADC_CHANNEL_4;
-        case 5: return ADC_CHANNEL_5;
-        case 6: return ADC_CHANNEL_6;
-        case 7: return ADC_CHANNEL_7;   // GPIO7 -> ADC1_CH6
-        case 8: return ADC_CHANNEL_8;
-        case 9: return ADC_CHANNEL_9;
-        default: return ADC_CHANNEL_6;  // 默认通道6
+        case 1: return ADC_CHANNEL_0;
+        case 2: return ADC_CHANNEL_1;
+        case 3: return ADC_CHANNEL_2;
+        case 4: return ADC_CHANNEL_3;
+        case 5: return ADC_CHANNEL_4;
+        case 6: return ADC_CHANNEL_5;
+        case 7: return ADC_CHANNEL_6;   
+        case 8: return ADC_CHANNEL_7;   
+        case 9: return ADC_CHANNEL_8;   
+        default: return ADC_CHANNEL_6;
     }
 }
 
 /**
- * @brief 初始化 ADC Oneshot 模式（ESP-IDF 5.0+ 新 API）
+ * @brief 初始化 ADC 单元和通道（使用共享 ADC）
  */
 static esp_err_t mq4_adc_init(void)
 {
-    if (g_adc_initialized) {
+    if (g_adc_channel_configured) {
         return ESP_OK;
     }
 
-    // 1. 初始化 ADC 单元
-    adc_oneshot_unit_init_cfg_t init_config = {
-        .unit_id = MQ4_ADC_UNIT,
-    };
-    
-    esp_err_t ret = adc_oneshot_new_unit(&init_config, &g_adc_handle);
+    // 1. 初始化共享 ADC 单元
+    esp_err_t ret = shared_adc_unit_init();
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "ADC unit init failed: %s", esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Shared ADC init failed: %s", esp_err_to_name(ret));
         return ret;
     }
 
-    // 2. 配置 ADC 通道
+    // 2. 配置 MQ-4 通道
     adc_oneshot_chan_cfg_t chan_config = {
         .bitwidth = MQ4_ADC_WIDTH,
         .atten = MQ4_ADC_ATTEN,
     };
 
     adc_channel_t channel = get_adc_channel(MQ4_AO_GPIO);
-    ret = adc_oneshot_config_channel(g_adc_handle, channel, &chan_config);
+    ret = adc_oneshot_config_channel(g_shared_adc_handle, channel, &chan_config);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "ADC channel config failed: %s", esp_err_to_name(ret));
-        adc_oneshot_del_unit(g_adc_handle);
-        g_adc_handle = NULL;
         return ret;
     }
 
-    ESP_LOGI(TAG, "ADC initialized on GPIO%d (Channel %d)", MQ4_AO_GPIO, channel);
-    g_adc_initialized = true;
+    ESP_LOGI(TAG, "MQ-4 ADC channel configured on GPIO%d (ADC1_CH%d)", MQ4_AO_GPIO, channel);
+    g_adc_channel_configured = true;
     return ESP_OK;
 }
 
@@ -94,7 +88,6 @@ static esp_err_t mq4_adc_calibration_init(void)
     esp_err_t ret = ESP_FAIL;
     bool calibrated = false;
 
-    // ESP32-S3 支持 Curve Fitting 方案
 #if ADC_CALI_SCHEME_CURVE_FITTING_SUPPORTED
     ESP_LOGI(TAG, "Using Curve Fitting calibration scheme");
     
@@ -115,7 +108,6 @@ static esp_err_t mq4_adc_calibration_init(void)
     }
 #endif
 
-    // 如果不支持 Curve Fitting，尝试 Line Fitting（旧方案，ESP32 系列通用）
 #if ADC_CALI_SCHEME_LINE_FITTING_SUPPORTED
     if (!calibrated) {
         ESP_LOGI(TAG, "Using Line Fitting calibration scheme");
@@ -124,7 +116,7 @@ static esp_err_t mq4_adc_calibration_init(void)
             .unit_id = MQ4_ADC_UNIT,
             .atten = MQ4_ADC_ATTEN,
             .bitwidth = MQ4_ADC_WIDTH,
-            .default_vref = 1100,  // 默认参考电压 1100mV
+            .default_vref = 1100,
         };
         
         ret = adc_cali_create_scheme_line_fitting(&cali_config, &g_adc_cali_handle);
@@ -170,12 +162,12 @@ static esp_err_t mq4_do_init(void)
 }
 
 /**
- * @brief 多次采样取平均
+ * @brief 多次采样取平均（使用共享 ADC 句柄）
  */
 static int mq4_adc_read_average(int samples)
 {
-    if (g_adc_handle == NULL) {
-        ESP_LOGE(TAG, "ADC not initialized");
+    if (g_shared_adc_handle == NULL) {
+        ESP_LOGE(TAG, "Shared ADC not initialized");
         return 0;
     }
 
@@ -184,7 +176,7 @@ static int mq4_adc_read_average(int samples)
     adc_channel_t channel = get_adc_channel(MQ4_AO_GPIO);
 
     for (int i = 0; i < samples; i++) {
-        if (adc_oneshot_read(g_adc_handle, channel, &raw_value) == ESP_OK) {
+        if (adc_oneshot_read(g_shared_adc_handle, channel, &raw_value) == ESP_OK) {
             sum += raw_value;
         } else {
             ESP_LOGW(TAG, "ADC read failed at sample %d", i);
@@ -201,15 +193,14 @@ static int mq4_adc_read_average(int samples)
 static int mq4_raw_to_voltage(int raw)
 {
     if (g_adc_cali_handle == NULL) {
-        // 无校准，使用线性近似
-        return (raw * 3300) / 4095;  // 3.3V = 3300mV, 12bit = 4095
+        return (raw * 3300) / 4095;
     }
 
     int voltage_mv = 0;
     esp_err_t ret = adc_cali_raw_to_voltage(g_adc_cali_handle, raw, &voltage_mv);
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Cali raw to voltage failed: %s", esp_err_to_name(ret));
-        return (raw * 3300) / 4095;  //  fallback
+        return (raw * 3300) / 4095;
     }
     
     return voltage_mv;
@@ -223,11 +214,9 @@ static float mq4_calculate_rs(int raw)
     if (raw == 0) raw = 1;
 
     int voltage_mv = mq4_raw_to_voltage(raw);
-    float vout = voltage_mv / 1000.0f;  // 转换为 V
+    float vout = voltage_mv / 1000.0f;
     
-    // RS = RL * (Vcc - Vout) / Vout
-    // 假设 Vcc = 3.3V
-    if (vout >= 3.3f) vout = 3.29f;  // 避免除零
+    if (vout >= 3.3f) vout = 3.29f;
     
     float rs = MQ4_RL_VALUE * (3.3f - vout) / vout;
     return rs;
@@ -263,7 +252,6 @@ esp_err_t mq4_init(void)
     ret = mq4_adc_calibration_init();
     if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "ADC calibration init warning: %s", esp_err_to_name(ret));
-        // 继续运行，即使校准失败
     }
     
     ret = mq4_do_init();
@@ -292,7 +280,6 @@ esp_err_t mq4_calibrate(mq4_data_t *data)
     int raw_avg = mq4_adc_read_average(MQ4_CALIBRATION_SAMPLES);
     float rs = mq4_calculate_rs(raw_avg);
     
-    // 在清洁空气中，RS/RO = MQ4_RO_CLEAN_AIR
     g_ro_value = rs / MQ4_RO_CLEAN_AIR;
     g_is_calibrated = true;
     
@@ -316,20 +303,17 @@ esp_err_t mq4_read(mq4_data_t *data)
     
     memset(data, 0, sizeof(mq4_data_t));
     
-    // 读取模拟值
     int raw = mq4_adc_read_average(MQ4_READ_SAMPLES);
     data->raw_value = raw;
     
     int voltage_mv = mq4_raw_to_voltage(raw);
     data->voltage = voltage_mv / 1000.0f;
     
-    // 计算 RS
     float rs = mq4_calculate_rs(raw);
     data->rs = rs;
     data->ro = g_ro_value;
     data->calibrated = g_is_calibrated;
     
-    // 计算 PPM
     if (g_is_calibrated && g_ro_value > 0) {
         float ratio = rs / g_ro_value;
         data->ppm = mq4_calculate_ppm(ratio);
@@ -339,7 +323,6 @@ esp_err_t mq4_read(mq4_data_t *data)
         data->ppm = mq4_calculate_ppm(ratio);
     }
     
-    // 读取数字输出
     data->digital_alert = mq4_get_digital_status();
     
     ESP_LOGD(TAG, "Raw: %d, Volt: %.2fV, RS: %.2fK, PPM: %.1f, DO: %s",
@@ -352,7 +335,6 @@ esp_err_t mq4_read(mq4_data_t *data)
 bool mq4_get_digital_status(void)
 {
     int level = gpio_get_level(MQ4_DO_GPIO);
-    // 大多数模块：检测到气体时 DO 输出低电平（LED亮）
     return (level == 0);
 }
 
