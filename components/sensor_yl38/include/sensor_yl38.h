@@ -15,9 +15,14 @@
 #define YL38_READ_SAMPLES   10
 
 // 动态阈值配置
+#define YL38_READ_SAMPLES       10      // 读取时的平均采样数
 #define YL38_CALIBRATION_SAMPLES    20      // 校准采样次数
-#define YL38_FLAME_HYSTERESIS       300     // 迟滞值，避免抖动
-#define YL38_MIN_VALID_RAW          100     // 最小有效值（避免短路）
+#define YL38_FLAME_HYSTERESIS       800     // 迟滞值，避免抖动
+#define YL38_MIN_VALID_RAW          200     // 最小有效值（避免短路）
+
+// 确认阈值
+#define YL38_CONFIRM_FRAMES     3    // 连续3次检测到才报警（对应 3×500ms=1.5s）
+#define YL38_CLEAR_FRAMES       5    // 连续5次未检测到才解除（对应 5×500ms=2.5s）
 
 typedef enum {
     YL38_NO_FLAME = 0,

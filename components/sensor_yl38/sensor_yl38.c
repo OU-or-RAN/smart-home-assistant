@@ -13,6 +13,10 @@
 
 static const char *TAG = "yl38";
 
+static int  s_consecutive_flame_count  = 0;   // 连续检测到火焰的次数
+static int  s_consecutive_clear_count  = 0;   // 连续未检测到火焰的次数
+
+
 // 全局变量
 static adc_cali_handle_t g_adc_cali_handle = NULL;
 static int g_flame_threshold_raw = 2000;    // 默认阈值，会被校准覆盖
@@ -253,62 +257,81 @@ esp_err_t yl38_calibrate_baseline(void)
 
 esp_err_t yl38_read(yl38_data_t *data)
 {
-    if (data == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    
+    if (data == NULL) return ESP_ERR_INVALID_ARG;
     memset(data, 0, sizeof(yl38_data_t));
-    
+
+    // ===== ADC 读取（多次平均，采样数从原来的 YL38_READ_SAMPLES 增大）=====
     int raw = yl38_adc_read_average(YL38_READ_SAMPLES);
-    data->raw_value = raw;
-    data->baseline_raw = g_baseline_raw;  // 记录基线
-    
-    int voltage_mv = yl38_raw_to_voltage(raw);
-    data->voltage = voltage_mv / 1000.0f;
-    
+    data->raw_value    = raw;
+    data->baseline_raw = g_baseline_raw;
+
+    int voltage_mv  = yl38_raw_to_voltage(raw);
+    data->voltage   = voltage_mv / 1000.0f;
     data->digital_detected = yl38_get_digital_status();
-    
-    // 使用动态阈值判断
+
     int threshold = g_is_calibrated ? g_flame_threshold_raw : 2000;
-    
-    // 调试日志
-    ESP_LOGD(TAG, "Raw=%d, Threshold=%d, Baseline=%d, Calibrated=%s",
-             raw, threshold, g_baseline_raw, g_is_calibrated ? "YES" : "NO");
-    
-    // 判断火焰：Raw 显著低于基线
+
+    ESP_LOGD(TAG, "Raw=%d Threshold=%d Baseline=%d",
+             raw, threshold, g_baseline_raw);
+
+    // ===== 原始检测（本帧是否疑似有火焰）=====
+    bool raw_detected = false;
+    yl38_flame_level_t raw_level = YL38_NO_FLAME;
+    float raw_intensity = 0.0f;
+
     if (raw < threshold) {
-        data->flame_detected = true;
-        
-        // 计算强度（相对于基线的下降程度）
         int drop = g_baseline_raw - raw;
         float drop_percent = (float)drop / g_baseline_raw * 100.0f;
-        
-        if (drop_percent > 70.0f || raw < 500) {
-            data->flame_level = YL38_FLAME_STRONG;
-            data->intensity_percent = 100.0f;
-        } else if (drop_percent > 40.0f) {
-            data->flame_level = YL38_FLAME_MEDIUM;
-            data->intensity_percent = 75.0f;
+
+        if (drop_percent > 60.0f || raw < 400) {        // 降低 STRONG 阈值：70% → 60%
+            raw_level     = YL38_FLAME_STRONG;
+            raw_intensity = 100.0f;
+        } else if (drop_percent > 30.0f) {              // 降低 MEDIUM 阈值：40% → 30%
+            raw_level     = YL38_FLAME_MEDIUM;
+            raw_intensity = 75.0f;
         } else {
-            data->flame_level = YL38_FLAME_WEAK;
-            data->intensity_percent = 50.0f;
+            raw_level     = YL38_FLAME_WEAK;
+            raw_intensity = 50.0f;
         }
+        raw_detected = true;
+    }
+
+    // DO 辅助触发（硬件比较器，优先级高）
+    if (data->digital_detected && !raw_detected) {
+        ESP_LOGW(TAG, "DO triggered but analog not, possible threshold issue");
+        raw_detected  = true;
+        raw_level     = YL38_FLAME_WEAK;
+        raw_intensity = 50.0f;
+    }
+
+    // ===== 连续帧确认（消抖）=====
+    if (raw_detected) {
+        s_consecutive_flame_count++;
+        s_consecutive_clear_count = 0;
     } else {
-        data->flame_detected = false;
-        data->flame_level = YL38_NO_FLAME;
+        s_consecutive_clear_count++;
+        s_consecutive_flame_count = 0;
+    }
+
+    // 报警触发：需要连续 N 帧检测到
+    if (s_consecutive_flame_count >= YL38_CONFIRM_FRAMES) {
+        data->flame_detected    = true;
+        data->flame_level       = raw_level;
+        data->intensity_percent = raw_intensity;
+    }
+    // 报警解除：需要连续 N 帧未检测到
+    else if (s_consecutive_clear_count >= YL38_CLEAR_FRAMES) {
+        data->flame_detected    = false;
+        data->flame_level       = YL38_NO_FLAME;
         data->intensity_percent = 0.0f;
     }
-    
-    // DO 引脚作为辅助判断
-    if (data->digital_detected) {
-        // 如果 DO 触发但模拟值未触发，可能是阈值问题
-        if (!data->flame_detected) {
-            ESP_LOGW(TAG, "DO triggered but analog below threshold, check calibration");
-            data->flame_detected = true;
-            data->flame_level = YL38_FLAME_WEAK;
-        }
+    // 中间状态：保持上一次的结论（不在此函数维护，由任务层 last_flame 保持）
+    else {
+        data->flame_detected    = raw_detected;
+        data->flame_level       = raw_level;
+        data->intensity_percent = raw_intensity;
     }
-    
+
     return ESP_OK;
 }
 
