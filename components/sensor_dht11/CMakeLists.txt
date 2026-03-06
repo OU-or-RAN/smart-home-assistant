@@ -8,5 +8,6 @@ idf_component_register(
         esp_timer
         esp_hw_support
         driver
-        esp_driver_rmt        
+        esp_driver_rmt      
+        log  
 )

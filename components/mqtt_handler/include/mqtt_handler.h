@@ -31,6 +31,13 @@ bool        sensor_dht11_is_valid(void);
 float       sensor_dht11_get_temperature(void);
 float       sensor_dht11_get_humidity(void);
 
+// MQ2
+bool        sensor_mq2_is_initialized(void);
+bool        sensor_mq2_is_alert(void);
+float       sensor_mq2_get_ppm(void);
+int         sensor_mq2_get_raw(void);
+bool        sensor_mq2_is_calibrated(void);
+
 // MQ4
 bool        sensor_mq4_is_initialized(void);
 bool        sensor_mq4_is_alert(void);
@@ -46,5 +53,10 @@ int         sensor_yl38_get_raw(void);
 const char* sensor_yl38_get_level_string(void);
 float       sensor_yl38_get_intensity(void);
 bool        sensor_yl38_is_digital_triggered(void);
+
+// SHT40
+bool        sensor_sht40_is_valid(void);
+float       sensor_sht40_get_temperature(void);
+float       sensor_sht40_get_humidity(void);
 
 #endif // MQTT_HANDLER_H

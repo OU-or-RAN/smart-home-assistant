@@ -4,10 +4,13 @@ idf_component_register(
     REQUIRES
         json_builder
         led_control
+        sensor_mq2
         sensor_mq4
         sensor_dht11
+        sensor_sht40
         sensor_yl38
         mqtt
         json
         time_sync
+        log
 )

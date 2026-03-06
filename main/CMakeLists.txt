@@ -3,6 +3,7 @@ file(GLOB SOURCES "*.c")
 idf_component_register(SRCS ${SOURCES}
                     INCLUDE_DIRS "."
                     REQUIRES 
+                        log
                         time_sync
                         mqtt
                         json

@@ -2,6 +2,7 @@ idf_component_register(
     SRCS "led_control.c"
     INCLUDE_DIRS "include"
     REQUIRES 
+        log
         pin_config
         freertos
         sensor_yl38
