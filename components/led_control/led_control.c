@@ -133,13 +133,19 @@ void led_set_flame_alert(bool alert, yl38_flame_level_t level)
         int g_val = (level == YL38_FLAME_WEAK)   ? 255 :
                     (level == YL38_FLAME_MEDIUM)  ? 100 : 0;
         led_set_color_with_priority(255, g_val, 0, LED_PRIO_FLAME);
+
     } else {
         xSemaphoreTake(s_led_mutex, portMAX_DELAY);
         if (s_priority == LED_PRIO_FLAME) {
             s_priority = LED_PRIO_NONE;
+            s_r = 0; s_g = 0; s_b = 0;
+            s_brightness = 0;
+            // 直接刷新 LED 为熄灭状态
+            ESP_ERROR_CHECK(led_strip_set_pixel(s_led_strip, 0, 0, 0, 0));
+            ESP_ERROR_CHECK(led_strip_refresh(s_led_strip));
+            ESP_LOGI(TAG, "Flame alert cleared, LED off");
         }
         xSemaphoreGive(s_led_mutex);
-        led_set_color_with_priority(0, 0, 0, LED_PRIO_NONE);
     }
 }
 

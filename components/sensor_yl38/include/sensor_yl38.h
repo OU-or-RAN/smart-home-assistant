@@ -17,7 +17,7 @@
 // 动态阈值配置
 #define YL38_READ_SAMPLES       10      // 读取时的平均采样数
 #define YL38_CALIBRATION_SAMPLES    20      // 校准采样次数
-#define YL38_FLAME_HYSTERESIS       800     // 迟滞值，避免抖动
+#define YL38_FLAME_HYSTERESIS       200     // 迟滞值，避免抖动
 #define YL38_MIN_VALID_RAW          200     // 最小有效值（避免短路）
 
 // 确认阈值

@@ -28,12 +28,11 @@ static bool g_is_calibrated = false;
 static adc_channel_t get_adc_channel(int gpio_num)
 {
     switch (gpio_num) {
-        case 0: return ADC_CHANNEL_0;
-        case 1: return ADC_CHANNEL_1;
-        case 2: return ADC_CHANNEL_2;
-        case 3: return ADC_CHANNEL_3;
-        case 4: return ADC_CHANNEL_4;
-        case 5: return ADC_CHANNEL_5;
+        case 1: return ADC_CHANNEL_0;
+        case 2: return ADC_CHANNEL_1;
+        case 3: return ADC_CHANNEL_2;
+        case 4: return ADC_CHANNEL_3;
+        case 5: return ADC_CHANNEL_4;
         case 6: return ADC_CHANNEL_5;
         case 7: return ADC_CHANNEL_6;
         case 8: return ADC_CHANNEL_7;
@@ -204,53 +203,74 @@ esp_err_t yl38_init(void)
  */
 esp_err_t yl38_calibrate_baseline(void)
 {
-    ESP_LOGW(TAG, "========================================");
     ESP_LOGW(TAG, "Starting YL-38 baseline calibration...");
-    ESP_LOGW(TAG, "Make sure NO FLAME and normal ambient light!");
-    ESP_LOGW(TAG, "Calibrating in 3 seconds...");
-    ESP_LOGW(TAG, "========================================");
-    
     vTaskDelay(pdMS_TO_TICKS(3000));
-    
+
+    // 丢弃前3帧（传感器刚开始采样时不稳定）
+    for (int i = 0; i < 3; i++) {
+        yl38_adc_read_average(3);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
     int raw_sum = 0;
     int min_raw = 4095;
     int max_raw = 0;
-    
-    // 多次采样
+    int valid_count = 0;
+
+    // 采样并剔除离群值
+    int samples[YL38_CALIBRATION_SAMPLES];
     for (int i = 0; i < YL38_CALIBRATION_SAMPLES; i++) {
-        int raw = yl38_adc_read_average(5);
-        raw_sum += raw;
-        
-        if (raw < min_raw) min_raw = raw;
-        if (raw > max_raw) max_raw = raw;
-        
-        ESP_LOGI(TAG, "Calibration sample %d/%d: Raw=%d", i+1, YL38_CALIBRATION_SAMPLES, raw);
+        samples[i] = yl38_adc_read_average(5);
+        ESP_LOGI(TAG, "Calibration sample %d/%d: Raw=%d",
+                 i + 1, YL38_CALIBRATION_SAMPLES, samples[i]);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
-    
-    int avg_raw = raw_sum / YL38_CALIBRATION_SAMPLES;
-    int variance = max_raw - min_raw;
-    
-    ESP_LOGI(TAG, "Calibration complete: Avg=%d, Min=%d, Max=%d, Variance=%d", 
-             avg_raw, min_raw, max_raw, variance);
-    
-    // 检查传感器是否异常
-    if (avg_raw < YL38_MIN_VALID_RAW) {
-        ESP_LOGE(TAG, "Sensor may be damaged or shorted! Raw=%d is too low", avg_raw);
+
+    // 第一轮：计算粗略均值
+    int32_t rough_sum = 0;
+    for (int i = 0; i < YL38_CALIBRATION_SAMPLES; i++) rough_sum += samples[i];
+    int rough_avg = rough_sum / YL38_CALIBRATION_SAMPLES;
+
+    // 第二轮：剔除偏离均值 30% 以上的样本
+    for (int i = 0; i < YL38_CALIBRATION_SAMPLES; i++) {
+        int deviation = abs(samples[i] - rough_avg);
+        if (deviation > rough_avg * 30 / 100) {
+            ESP_LOGW(TAG, "Sample %d Raw=%d rejected (deviation=%d)", i+1, samples[i], deviation);
+            continue;
+        }
+        raw_sum += samples[i];
+        if (samples[i] < min_raw) min_raw = samples[i];
+        if (samples[i] > max_raw) max_raw = samples[i];
+        valid_count++;
+    }
+
+    if (valid_count < YL38_CALIBRATION_SAMPLES / 2) {
+        ESP_LOGE(TAG, "Too many invalid samples (%d valid), calibration aborted",
+                 valid_count);
         return ESP_ERR_INVALID_STATE;
     }
-    
-    if (variance > 500) {
-        ESP_LOGW(TAG, "High variance detected (%d), environment may be unstable", variance);
+
+    int avg_raw  = raw_sum / valid_count;
+    int variance = max_raw - min_raw;
+
+    ESP_LOGI(TAG, "Calibration: valid=%d/%d Avg=%d Min=%d Max=%d Variance=%d",
+             valid_count, YL38_CALIBRATION_SAMPLES, avg_raw, min_raw, max_raw, variance);
+
+    if (avg_raw < YL38_MIN_VALID_RAW) {
+        ESP_LOGE(TAG, "Baseline too low (%d), sensor may not be connected", avg_raw);
+        return ESP_ERR_INVALID_STATE;
     }
-    
+
     g_baseline_raw = avg_raw;
-    // 设置阈值为基线减去迟滞值
     g_flame_threshold_raw = g_baseline_raw - YL38_FLAME_HYSTERESIS;
-    
-    ESP_LOGI(TAG, "Baseline set to %d, Threshold set to %d", 
-             g_baseline_raw, g_flame_threshold_raw);
-    
+
+    // 安全检查：阈值不能为负数或过低
+    if (g_flame_threshold_raw < 100) {
+        g_flame_threshold_raw = 100;
+        ESP_LOGW(TAG, "Threshold clipped to 100 (baseline too low for configured hysteresis)");
+    }
+
+    ESP_LOGI(TAG, "Baseline=%d Threshold=%d", g_baseline_raw, g_flame_threshold_raw);
     g_is_calibrated = true;
     return ESP_OK;
 }

@@ -58,43 +58,52 @@ char *json_build_status(void)
 
     // ==================== MQ4 甲烷 ====================
     cJSON *mq4_obj = cJSON_CreateObject();
-    if (sensor_mq4_is_initialized()) {
+    if (!sensor_mq4_is_initialized()) {
+        cJSON_AddStringToObject(mq4_obj, "status",     "initializing");
+        cJSON_AddBoolToObject  (mq4_obj, "calibrated", false);
+    } else if (!sensor_mq4_is_online()) {
+        cJSON_AddStringToObject(mq4_obj, "status",     "offline");
+        cJSON_AddBoolToObject  (mq4_obj, "calibrated", sensor_mq4_is_calibrated());
+    } else {
         cJSON_AddNumberToObject(mq4_obj, "ppm",        sensor_mq4_get_ppm());
         cJSON_AddNumberToObject(mq4_obj, "raw_adc",    sensor_mq4_get_raw());
         cJSON_AddBoolToObject  (mq4_obj, "alert",      sensor_mq4_is_alert());
         cJSON_AddBoolToObject  (mq4_obj, "calibrated", sensor_mq4_is_calibrated());
         cJSON_AddStringToObject(mq4_obj, "status",     "active");
-    } else {
-        cJSON_AddStringToObject(mq4_obj, "status",     "initializing");
-        cJSON_AddBoolToObject  (mq4_obj, "calibrated", false);
     }
     cJSON_AddItemToObject(data, "mq4", mq4_obj);
 
     // ==================== MQ2 烟雾/可燃气 ====================
     cJSON *mq2_obj = cJSON_CreateObject();
-    if (sensor_mq2_is_initialized()) {
+    if (!sensor_mq2_is_initialized()) {
+        cJSON_AddStringToObject(mq2_obj, "status",     "initializing");
+        cJSON_AddBoolToObject  (mq2_obj, "calibrated", false);
+    } else if (!sensor_mq2_is_online()) {
+        cJSON_AddStringToObject(mq2_obj, "status",     "offline");
+        cJSON_AddBoolToObject  (mq2_obj, "calibrated", sensor_mq2_is_calibrated());
+    } else {
         cJSON_AddNumberToObject(mq2_obj, "ppm",        sensor_mq2_get_ppm());
         cJSON_AddNumberToObject(mq2_obj, "raw_adc",    sensor_mq2_get_raw());
         cJSON_AddBoolToObject  (mq2_obj, "alert",      sensor_mq2_is_alert());
         cJSON_AddBoolToObject  (mq2_obj, "calibrated", sensor_mq2_is_calibrated());
         cJSON_AddStringToObject(mq2_obj, "status",     "active");
-    } else {
-        cJSON_AddStringToObject(mq2_obj, "status",     "initializing");
-        cJSON_AddBoolToObject  (mq2_obj, "calibrated", false);
     }
     cJSON_AddItemToObject(data, "mq2", mq2_obj);
 
     // ==================== YL-38 火焰 ====================
     cJSON *flame_obj = cJSON_CreateObject();
-    if (sensor_yl38_is_initialized()) {
+    if (!sensor_yl38_is_initialized()) {
+        cJSON_AddStringToObject(flame_obj, "status", "initializing");
+    } else if (!sensor_yl38_is_online()) {
+        cJSON_AddStringToObject(flame_obj, "status", "offline");
+    } else {
         cJSON_AddNumberToObject(flame_obj, "raw",               sensor_yl38_get_raw());
         cJSON_AddNumberToObject(flame_obj, "voltage",           sensor_yl38_get_voltage());
         cJSON_AddStringToObject(flame_obj, "level",             sensor_yl38_get_level_string());
         cJSON_AddBoolToObject  (flame_obj, "detected",          sensor_yl38_is_flame_detected());
         cJSON_AddNumberToObject(flame_obj, "intensity_percent", sensor_yl38_get_intensity());
         cJSON_AddBoolToObject  (flame_obj, "digital_trigger",   sensor_yl38_is_digital_triggered());
-    } else {
-        cJSON_AddStringToObject(flame_obj, "status", "offline");
+        cJSON_AddStringToObject(flame_obj, "status",            "active");
     }
     cJSON_AddItemToObject(data, "flame", flame_obj);
 
