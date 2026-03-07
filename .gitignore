@@ -3,6 +3,8 @@
 # ============================================
 **/build/
 build/
+build_s3_001/
+build_s3_002/
 *.bin
 *.elf
 *.map
@@ -13,8 +15,8 @@ sdkconfig
 sdkconfig.old
 
 # 但保留模板（用于重建）
-!sdkconfig.defaults
-!sdkconfig.defaults.*
+sdkconfig.defaults
+sdkconfig.defaults.*
 
 # 组件管理
 managed_components/
