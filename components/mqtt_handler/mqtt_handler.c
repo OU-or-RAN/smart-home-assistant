@@ -600,10 +600,41 @@ void mqtt_handler_start(void)
                                    mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
 
-    xTaskCreate(sensor_dht11_task,   "dht11_task",   4096, NULL,   2, NULL);
-    xTaskCreate(sensor_sht40_task,   "sht40_task",   4096, NULL,   2, NULL);
-    xTaskCreate(sensor_mq2_task,     "mq2_task",     4096, NULL,   3, NULL);
-    xTaskCreate(sensor_mq4_task,     "mq4_task",     4096, NULL,   3, NULL);
-    xTaskCreate(sensor_yl38_task,    "yl38_task",    4096, NULL,   4, NULL);
-    xTaskCreate(status_publish_task, "status_task",  4096, client, 5, NULL);
+#if SENSOR_DHT11_ENABLED
+    xTaskCreate(sensor_dht11_task, "dht11_task", 4096, NULL, 2, NULL);
+#else
+    ESP_LOGI(TAG, "DHT11 disabled on this board");
+#endif
+
+#if SENSOR_SHT40_ENABLED
+    xTaskCreate(sensor_sht40_task, "sht40_task", 4096, NULL, 2, NULL);
+#else
+    ESP_LOGI(TAG, "SHT40 disabled on this board");
+#endif
+
+#if SENSOR_MQ2_ENABLED
+    xTaskCreate(sensor_mq2_task, "mq2_task", 4096, NULL, 3, NULL);
+#else
+    ESP_LOGI(TAG, "MQ-2 disabled on this board");
+    s_mq2_initialized  = true;
+    s_mq2_hw_connected = false;
+#endif
+
+#if SENSOR_MQ4_ENABLED
+    xTaskCreate(sensor_mq4_task, "mq4_task", 4096, NULL, 3, NULL);
+#else
+    ESP_LOGI(TAG, "MQ-4 disabled on this board");
+    s_mq4_initialized  = true;
+    s_mq4_hw_connected = false;
+#endif
+
+#if SENSOR_YL38_ENABLED
+    xTaskCreate(sensor_yl38_task, "yl38_task", 4096, NULL, 4, NULL);
+#else
+    ESP_LOGI(TAG, "YL-38 disabled on this board");
+    s_yl38_initialized  = true;
+    s_yl38_hw_connected = false;
+#endif
+
+    xTaskCreate(status_publish_task, "status_task", 4096, client, 5, NULL);
 }
