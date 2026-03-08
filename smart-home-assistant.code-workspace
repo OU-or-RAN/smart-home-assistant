@@ -1,0 +1,26 @@
+{
+    "folders": [
+        {
+            "name": "ESP32-S3",
+            "path": "./esp32"
+        },
+        {
+            "name": "ESP32-CAM",
+            "path": "./esp32cam"
+        },
+        {
+            "name": "Edge (LubanCat4)",
+            "path": "./edge"
+        },
+        {
+            "name": "Root",
+            "path": "."
+        }
+    ],
+    "settings": {
+        "idf.espIdfPath": "${env:IDF_PATH}",
+        "[esp32-s3]": {
+            "cmake.sourceDirectory": "${workspaceFolder}"
+        }
+    }
+}

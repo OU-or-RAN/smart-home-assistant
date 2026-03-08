@@ -1,0 +1,6 @@
+{
+    "idf.espIdfPath": "${env:IDF_PATH}",
+    "idf.customExtraVars": {},
+    "cmake.sourceDirectory": "${workspaceFolder}/esp32",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/esp32/build_s3_001/compile_commands.json"
+}

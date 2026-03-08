@@ -1,0 +1,22 @@
+menu "Example Configuration"
+
+    config DEVICE_INDEX
+        int "Device index (1=s3_001, 2=s3_002, ...)"
+        default 1
+        range 1 99
+        help
+            Each board gets a unique index.
+            Board 1 → device_id = s3_001
+            Board 2 → device_id = s3_002
+
+    config BROKER_URL
+        string "Broker URL"
+        default "mqtt://mqtt.eclipseprojects.io"
+        help
+            URL of the broker to connect to
+
+    config BROKER_URL_FROM_STDIN
+        bool
+        default y if BROKER_URL = "FROM_STDIN"
+
+endmenu
