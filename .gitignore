@@ -8,6 +8,11 @@ esp32/sdkconfig.defaults
 esp32/sdkconfig.defaults.s3_002
 esp32/managed_components/
 
+esp32cam/build/
+esp32cam/sdkconfig
+esp32cam/sdkconfig.old
+esp32cam/sdkconfig.defaults
+
 # Python
 edge/__pycache__/
 edge/**/__pycache__/

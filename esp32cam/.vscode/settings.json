@@ -1,0 +1,11 @@
+{
+   "idf.currentSetup": "F:/storage1/ESP-IDF/Espressif/frameworks/esp-idf-v5.3.1/",
+   "idf.customExtraVars": {
+      "IDF_TARGET": "esp32"
+   },
+   "idf.portWin": "COM8",
+   "idf.openOcdConfigs": [
+      "interface/ftdi/esp32_devkitj_v1.cfg",
+      "target/esp32.cfg"
+   ]
+}
