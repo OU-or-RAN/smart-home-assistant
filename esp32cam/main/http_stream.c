@@ -44,7 +44,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb) {
             ESP_LOGE(TAG, "Frame capture failed");
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(50));  // OPTIMIZED: 缩短重试延时
             continue;
         }
 
@@ -61,7 +61,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         size_t offset = 0;
         while (offset < fb->len && ret == ESP_OK) {
             size_t chunk = fb->len - offset;
-            if (chunk > 4096) chunk = 4096;
+            if (chunk > 8192) chunk = 8192;  // OPTIMIZED: 增大 chunk size，减少开销
             ret = httpd_resp_send_chunk(
                 req, (const char *)fb->buf + offset, chunk);
             offset += chunk;
@@ -82,8 +82,8 @@ static esp_err_t stream_handler(httpd_req_t *req)
             ESP_LOGD(TAG, "FPS: %.1f", s_fps);
         }
 
-        // 限速：约 10fps，给 WiFi 和 MQTT 留出带宽
-        vTaskDelay(pdMS_TO_TICKS(100));
+        // OPTIMIZED: 移除 vTaskDelay(100)，全速运行，根据硬件限帧率
+        // 如果过快，可加小延时如 vTaskDelay(10) ~100 FPS limit
     }
 
     s_streaming = false;
@@ -113,10 +113,10 @@ esp_err_t http_stream_start(void)
     config.server_port      = 80;
     config.ctrl_port        = 32768;
     config.max_uri_handlers = 4;
-    config.stack_size       = 8192;
+    config.stack_size       = 12288;  // OPTIMIZED: 增大栈，防止溢出
     // 增大发送超时，防止慢网络下断连
-    config.send_wait_timeout = 30;
-    config.recv_wait_timeout = 30;
+    config.send_wait_timeout = 60;    // OPTIMIZED: 延长超时
+    config.recv_wait_timeout = 60;    // OPTIMIZED: 延长超时
     // 只允许一个连接，节省内存
     config.max_open_sockets  = 2;
 
@@ -155,4 +155,3 @@ void http_stream_stop(void)
 }
 
 float http_stream_get_fps(void) { return s_fps; }
-

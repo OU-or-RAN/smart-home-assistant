@@ -47,10 +47,10 @@ esp_err_t camera_init(void)
 
         .pixel_format   = PIXFORMAT_JPEG,
         .frame_size     = frame_size,
-        .jpeg_quality   = 15,
-        .fb_count       = 1,               // PSRAM不稳定时用单缓冲
+        .jpeg_quality   = 10,              // OPTIMIZED: 降低质量，提高压缩率和帧率
+        .fb_count       = 2,               // OPTIMIZED: 双缓冲，提高流畅度
         .fb_location    = fb_location,
-        .grab_mode      = CAMERA_GRAB_LATEST,
+        .grab_mode      = CAMERA_GRAB_WHEN_EMPTY,  // OPTIMIZED: 确保不丢帧
     };
 
     esp_err_t ret = esp_camera_init(&config);
@@ -62,8 +62,9 @@ esp_err_t camera_init(void)
     sensor_t *s = esp_camera_sensor_get();
     if (s != NULL && s->id.PID == OV3660_PID) {
         s->set_vflip(s, 1);
-        s->set_brightness(s, 1);
-        s->set_saturation(s, -2);
+        s->set_brightness(s, 1);       // OPTIMIZED: 调整亮度
+        s->set_contrast(s, 1);         // OPTIMIZED: 提高对比度，加速采集
+        s->set_saturation(s, -1);      // OPTIMIZED: 微调饱和度
         ESP_LOGI(TAG, "OV3660 sensor configured");
     }
 

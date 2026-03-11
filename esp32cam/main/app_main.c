@@ -96,6 +96,11 @@ static void wifi_init_static_ip(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    // OPTIMIZED: 禁用 WiFi 省电模式，提高稳定性
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    // OPTIMIZED: 提高 TX power 到最大 (20 dBm)，改善信号
+    ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(80));  // 80/4 = 20 dBm
+
     EventBits_t bits = xEventGroupWaitBits(
         s_wifi_event_group,
         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,

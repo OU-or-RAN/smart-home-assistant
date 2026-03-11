@@ -164,7 +164,7 @@ static void status_publish_task(void *pvParameters)
     vTaskDelay(pdMS_TO_TICKS(5000));
     while (1) {
         mqtt_cam_publish_status();
-        vTaskDelay(pdMS_TO_TICKS(60000));  // 从30秒改为60秒
+        vTaskDelay(pdMS_TO_TICKS(120000));  // OPTIMIZED: 延长到120s，减少负载
     }
 }
 
