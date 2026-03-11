@@ -8,28 +8,28 @@
 #define MQTT_BROKER_URL     "mqtt://172.20.10.2:1883"
 
 // ==================== 设备标识 ====================
-#define DEVICE_INDEX        2
-#define DEVICE_ID           "s3_002"
-#define DEVICE_TYPE         "s3"
+// #define DEVICE_INDEX        2
+// #define DEVICE_ID           "s3_002"
+// #define DEVICE_TYPE         "s3"
 
-// ==================== 本机传感器配置 ====================
-// 根据实际接线情况修改，1=已接入，0=未接入
-// S3_001: DHT11=1, SHT40=0, MQ2=1, MQ4=1, YL38=1
-// S3_002: DHT11=0, SHT40=1, MQ2=0, MQ4=1, YL38=0
-#define SENSOR_DHT11_ENABLED    0
-#define SENSOR_SHT40_ENABLED    1
-#define SENSOR_MQ2_ENABLED      0
-#define SENSOR_MQ4_ENABLED      1
-#define SENSOR_YL38_ENABLED     0
-
-// #define DEVICE_INDEX            1
-// #define DEVICE_ID               "s3_001"
-// #define DEVICE_TYPE             "s3"
-// #define SENSOR_DHT11_ENABLED    1
-// #define SENSOR_SHT40_ENABLED    0
+// // ==================== 本机传感器配置 ====================
+// // 根据实际接线情况修改，1=已接入，0=未接入
+// // S3_001: DHT11=1, SHT40=0, MQ2=1, MQ4=1, YL38=1
+// // S3_002: DHT11=0, SHT40=1, MQ2=0, MQ4=1, YL38=0
+// #define SENSOR_DHT11_ENABLED    0
+// #define SENSOR_SHT40_ENABLED    1
 // #define SENSOR_MQ2_ENABLED      0
-// #define SENSOR_MQ4_ENABLED      0
-// #define SENSOR_YL38_ENABLED     1
+// #define SENSOR_MQ4_ENABLED      1
+// #define SENSOR_YL38_ENABLED     0
+
+#define DEVICE_INDEX            1
+#define DEVICE_ID               "s3_001"
+#define DEVICE_TYPE             "s3"
+#define SENSOR_DHT11_ENABLED    1
+#define SENSOR_SHT40_ENABLED    0
+#define SENSOR_MQ2_ENABLED      0
+#define SENSOR_MQ4_ENABLED      0
+#define SENSOR_YL38_ENABLED     1
 
 // ==================== MQTT 主题 ====================
 #define TOPIC_STATUS        "smart_home/s3/" DEVICE_ID "/status"
