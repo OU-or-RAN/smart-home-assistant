@@ -1,0 +1,161 @@
+# 规则优先级：安全(100-90) > 系统(80-70) > 节能(60) > 舒适(40) > 习惯(20)
+# cooldown_sec: 同一规则两次触发之间的最小间隔（秒）
+
+rules:
+
+  # ============================================================
+  # 安全规则 (priority: 100-90)
+  # ============================================================
+
+  - id: SAFETY_001
+    name: "燃气泄漏紧急处理"
+    priority: 100
+    conditions:
+      any:
+        # mq4 在 s3_002，mq2 在 s3_001，任一报警即触发
+        - sensor: mq4
+          field: alert
+          op: "=="
+          value: true
+        - sensor: mq2
+          field: alert
+          op: "=="
+          value: true
+    actions:
+      # 关闭 s3_001 的 LED（避免电火花）
+      - device: s3_001
+        cmd: {cmd: set, target: led, value: 0}
+      # 关闭 s3_002 的 LED
+      - device: s3_002
+        cmd: {cmd: set, target: led, value: 0}
+      - notify: "CRITICAL: Gas leak detected - LEDs off"
+    cooldown_sec: 30
+
+  - id: SAFETY_002
+    name: "火焰传感器检测"
+    priority: 95
+    conditions:
+      all:
+        - sensor: flame
+          field: detected
+          op: "=="
+          value: true
+        - sensor: flame
+          field: level
+          op: "!="
+          value: "NONE"
+    actions:
+      - notify: "WARNING: Flame detected by YL-38"
+    cooldown_sec: 10
+
+  - id: SAFETY_003
+    name: "燃气+火焰同时触发（高危）"
+    priority: 100
+    conditions:
+      all:
+        # 同时有燃气和火焰：最危险场景
+        - sensor: mq4
+          field: alert
+          op: "=="
+          value: true
+        - sensor: flame
+          field: detected
+          op: "=="
+          value: true
+    actions:
+      - device: s3_001
+        cmd: {cmd: set, target: led, value: 0}
+      - device: s3_002
+        cmd: {cmd: set, target: led, value: 0}
+      - notify: "CRITICAL: Gas + Flame simultaneously - EXTREME DANGER"
+    cooldown_sec: 60
+
+  - id: SAFETY_004
+    name: "烟雾浓度极高预警"
+    priority: 90
+    conditions:
+      any:
+        - sensor: mq2
+          field: ppm
+          op: ">="
+          value: 500
+        - sensor: mq4
+          field: ppm
+          op: ">="
+          value: 500
+    actions:
+      - notify: "WARNING: Gas concentration critically high (>=500ppm)"
+    cooldown_sec: 60
+
+  # ============================================================
+  # 系统规则 (priority: 80-70)
+  # ============================================================
+
+  - id: SYSTEM_001
+    name: "传感器离线告警"
+    priority: 70
+    conditions:
+      any:
+        # mq4 已初始化但 ppm 异常低可能是掉线
+        - sensor: mq4
+          field: ppm
+          op: "<"
+          value: 0
+        - sensor: mq2
+          field: ppm
+          op: "<"
+          value: 0
+    actions:
+      - notify: "WARNING: Sensor may be offline (negative ppm)"
+    cooldown_sec: 120
+
+  # ============================================================
+  # 舒适规则 (priority: 40)
+  # ============================================================
+
+  - id: COMFORT_001
+    name: "高温预警"
+    priority: 40
+    conditions:
+      any:
+        - sensor: dht11
+          field: temperature
+          op: ">"
+          value: 35
+        - sensor: sht40
+          field: temperature
+          op: ">"
+          value: 35
+    actions:
+      - notify: "INFO: High temperature detected (>35°C)"
+    cooldown_sec: 300
+
+  - id: COMFORT_002
+    name: "高湿预警"
+    priority: 35
+    conditions:
+      any:
+        - sensor: sht40
+          field: humidity
+          op: ">"
+          value: 85
+        - sensor: dht11
+          field: humidity
+          op: ">"
+          value: 85
+    actions:
+      - notify: "INFO: High humidity detected (>85%RH)"
+    cooldown_sec: 300
+
+  - id: COMFORT_003
+    name: "低温提示"
+    priority: 30
+    conditions:
+      all:
+        - sensor: sht40
+          field: temperature
+          op: "<"
+          value: 10
+    actions:
+      - notify: "INFO: Low temperature detected (<10°C)"
+    cooldown_sec: 600

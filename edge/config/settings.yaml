@@ -1,0 +1,26 @@
+mqtt:
+  broker: "localhost"
+  port: 1883
+
+devices:
+  s3_001:
+    sensors: [dht11, mq2, mq4, flame]
+    topic_status:  "smart_home/s3/s3_001/status"
+    topic_control: "smart_home/s3/s3_001/control"
+  s3_002:
+    sensors: [sht40, mq4]
+    topic_status:  "smart_home/s3/s3_002/status"
+    topic_control: "smart_home/s3/s3_002/control"
+  esp32cam:
+    topic_status:  "smart_home/cam/esp32cam_001/status"
+    topic_control: "smart_home/cam/esp32cam_001/control"
+    stream_url:    "http://172.20.10.4/stream"
+    capture_url:   "http://172.20.10.4/capture"
+
+storage:
+  db_path: "/home/lubancat/smart_home/data/smart_home.db"
+  # 内存中只保留最近N条，不写磁盘的历史
+  memory_window_sec: 10
+
+system:
+  log_level: "INFO"
