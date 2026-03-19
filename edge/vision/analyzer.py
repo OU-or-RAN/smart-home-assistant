@@ -1,316 +1,221 @@
-"""
-Phase 3: Vision module
-Pulls MJPEG stream from ESP32-CAM, runs YOLO inference on CPU,
-outputs structured semantic result for LLM and rule engine.
-"""
 import cv2
 import time
-import logging
 import threading
 import requests
 import numpy as np
+import logging
 import os
-import sys
+
+from rknnlite.api import RKNNLite
 
 log = logging.getLogger("vision")
 
-# Graceful fallback if ultralytics not available
-try:
-    from ultralytics import YOLO
-    YOLO_AVAILABLE = True
-except ImportError:
-    YOLO_AVAILABLE = False
-    log.warning("ultralytics not available, using brightness fallback")
-
-
-class VisionAnalyzer:
-
-    # COCO class IDs relevant to smart home
-    PERSON_ID = 0
-    CAT_ID    = 15
-    DOG_ID    = 16
+class RKNNVisionAnalyzer:
+    COCO_NAMES = {0: "person", 15: "cat", 16: "dog", 56: "chair", 67: "phone"}
 
     def __init__(self, capture_url: str, stream_url: str,
-                 model_path: str = "/home/smart_home/edge/models/yolov8n.pt",
-                 use_yolo: bool = True,
-                 inference_interval: float = 3.0):
-        """
-        Parameters
-        ----------
-        capture_url       : http://172.20.10.4/capture  (single frame)
-        stream_url        : http://172.20.10.4/stream   (MJPEG)
-        model_path        : path to yolov8n.pt
-        use_yolo          : set False to skip YOLO and use fallback only
-        inference_interval: seconds between inferences in stream loop
-        """
+                 rknn_model_path: str,
+                 inference_interval: float = 1.0,
+                 save_dir: str = "storage/detections"):
         self._capture_url = capture_url
         self._stream_url  = stream_url
         self._interval    = inference_interval
-        self._model       = None
-        self._result      = {}
+        self._save_dir    = save_dir
+        self._rknn        = None
+        self._result      = {
+            "frame_available": False, 
+            "person_detected": False, 
+            "confidence": 0.0,
+            "method": "rknn_npu",
+            "objects": []
+        }
         self._lock        = threading.Lock()
-        self._running     = False
+        
+        if not os.path.exists(self._save_dir):
+            os.makedirs(self._save_dir, exist_ok=True)
 
-        if use_yolo and YOLO_AVAILABLE:
-            self._load_yolo(model_path)
+        self._load_rknn(rknn_model_path)
 
-    # ==================== Model loading ====================
-
-    def _load_yolo(self, path: str):
-        """
-        Load YOLO model from given path.
-        If the path does not exist, YOLO will automatically download it.
-        Ensures the parent directory exists to avoid download failures.
-        """
+    def _load_rknn(self, path: str):
         try:
-            # Ensure the directory for the model exists
-            model_dir = os.path.dirname(path)
-            if model_dir and not os.path.exists(model_dir):
-                os.makedirs(model_dir, exist_ok=True)
-                log.info(f"Created model directory: {model_dir}")
-
-            # Check if file already exists
-            if os.path.isfile(path):
-                log.info(f"Model found at {path}, loading...")
-            else:
-                log.info(f"Model not found at {path}, will download on load.")
-
-            # Load model (downloads automatically if missing)
-            log.info(f"Loading YOLO from {path} ...")
-            self._model = YOLO(path)
-
-            # Warm-up: run once on blank image so first real inference is fast
-            blank = np.zeros((320, 320, 3), dtype=np.uint8)
-            self._model(blank, verbose=False)
-            log.info("YOLO ready")
+            log.info(f"Loading RKNN model: {path}")
+            self._rknn = RKNNLite(verbose=False)
+            if self._rknn.load_rknn(path) != 0:
+                raise RuntimeError("Failed to load RKNN model")
+            if self._rknn.init_runtime(core_mask=RKNNLite.NPU_CORE_AUTO) != 0:
+                raise RuntimeError("Failed to init RKNN runtime")
+            log.info("RKNN NPU initialized successfully.")
         except Exception as e:
-            log.error(f"YOLO load failed: {e}")
-            self._model = None
+            log.error(f"RKNN Init Error: {e}")
+            self._rknn = None
 
-    # ==================== Inference ====================
+    def _preprocess(self, frame):
+        """预处理：resize → RGB → float32归一化 → NHWC布局 → 确保内存连续"""
+        img = cv2.resize(frame, (320, 320))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # 转换为 float32 并归一化到 [0,1]（模型期望 float32 输入）
+        img = img.astype(np.float32) / 255.0
+        img = np.expand_dims(img, axis=0)          # (1, 320, 320, 3) NHWC
+        # 【关键】保证内存连续，避免 RKNN 驱动读取错误
+        img = np.ascontiguousarray(img)
+        return img
 
-    def _infer_yolo(self, frame: np.ndarray,
-                    conf: float = 0.40) -> dict:
-        """Run YOLOv8 on frame, return structured result."""
-        # Resize to 320 for speed; quality acceptable for smart home
-        small   = cv2.resize(frame, (320, 320))
-        results = self._model(small, conf=conf, verbose=False)
+    def _postprocess(self, outputs, conf_thresh=0.35, nms_thresh=0.45):
+        # 如果推理失败，outputs 可能为 None 或空列表
+        if outputs is None or len(outputs) == 0:
+            return {
+                "person_detected": False,
+                "objects": [],
+                "confidence": 0.0,
+                "method": "rknn_npu",
+                "frame_available": True
+            }
 
-        objects         = []
-        person_detected = False
-        fire_detected   = False
-        max_conf        = 0.0
+        output = outputs[0]
+        # 打印输出形状以便调试（可注释掉）
+        log.debug(f"Output shape: {output.shape}")
 
-        for box in results[0].boxes:
-            cls_id = int(box.cls[0])
-            label  = self._model.names[cls_id]
-            score  = float(box.conf[0])
+        # 统一转为 (num_boxes, 84)
+        if len(output.shape) == 3:
+            output = output[0]          # (84, 2100) 或 (2100, 84)
+        if output.shape[0] == 84:       # (84, 2100) -> (2100, 84)
+            output = output.T
 
-            objects.append({"label": label, "confidence": round(score, 3)})
-            max_conf = max(max_conf, score)
+        boxes_raw = output[:, :4]
+        scores_raw = output[:, 4:]
 
-            if cls_id == self.PERSON_ID:
-                person_detected = True
-            if label in ("fire", "flame", "smoke"):
-                fire_detected = True
+        # 自动检测输出是概率还是 logits
+        raw_max = float(np.max(scores_raw))
+        raw_min = float(np.min(scores_raw))
 
-        return {
-            "person_detected": person_detected,
-            "fire_detected":   fire_detected,
-            "objects":         objects,
-            "confidence":      round(max_conf, 3),
-            "method":          "yolo",
-        }
+        if raw_max > 1.0 or raw_min < 0.0:
+            # logits -> 应用 sigmoid
+            scores = 1 / (1 + np.exp(-np.clip(scores_raw, -15, 15)))
+            activated_max = float(np.max(scores))
+            log.debug(f"[Probe] Logits mode. Raw max: {raw_max:.2f} -> Activated max: {activated_max:.3f}")
+        else:
+            # 已经是概率
+            scores = scores_raw
+            activated_max = raw_max
+            log.debug(f"[Probe] Probability mode. Max conf: {activated_max:.3f}")
 
-    def _infer_fallback(self, frame: np.ndarray) -> dict:
-        """
-        No YOLO: detect potential fire by orange-red HSV range.
-        Crude but zero-dependency.
-        """
-        hsv  = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        mask = cv2.inRange(
-            hsv,
-            np.array([0,  120, 120]),   # lower: red-orange
-            np.array([25, 255, 255])    # upper: red-orange
-        )
-        ratio = float(np.sum(mask > 0)) / mask.size
-        return {
+        confidences = np.max(scores, axis=1)
+        class_ids = np.argmax(scores, axis=1)
+
+        # 基础返回结构（始终包含 NPU 看到的最高置信度，便于调试）
+        res = {
             "person_detected": False,
-            "fire_detected":   ratio > 0.05,
-            "objects":         [],
-            "confidence":      round(ratio, 3),
-            "method":          "fallback_hsv",
+            "objects": [],
+            "confidence": round(activated_max, 3),
+            "method": "rknn_npu",
+            "frame_available": True
         }
 
-    def _analyze_frame(self, frame: np.ndarray) -> dict:
-        base = {
-            "timestamp":       time.time(),
-            "frame_available": True,
-            "person_detected": False,
-            "fire_detected":   False,
-            "objects":         [],
-            "confidence":      0.0,
-            "method":          "none",
-        }
-        try:
-            if self._model is not None:
-                detected = self._infer_yolo(frame)
-            else:
-                detected = self._infer_fallback(frame)
-            base.update(detected)
-        except Exception as e:
-            log.error(f"Frame analysis error: {e}")
-        return base
+        mask = confidences > conf_thresh
+        if not np.any(mask):
+            return res
 
-    # ==================== Single-frame grab (event-driven) ====================
+        sel_boxes = boxes_raw[mask]
+        sel_confs = confidences[mask]
+        sel_ids = class_ids[mask]
+
+        boxes_list, confs_list, ids_list = [], [], []
+        for i in range(len(sel_boxes)):
+            cx, cy, w, h = sel_boxes[i]
+            # 注意：此处坐标可能是绝对像素值（0~320），我们保留为绝对坐标供 NMS 使用
+            x = int(cx - w/2)
+            y = int(cy - h/2)
+            boxes_list.append([x, y, int(w), int(h)])
+            confs_list.append(float(sel_confs[i]))
+            ids_list.append(int(sel_ids[i]))
+
+        indices = cv2.dnn.NMSBoxes(boxes_list, confs_list, conf_thresh, nms_thresh)
+
+        final_max_conf = 0.0
+        if len(indices) > 0:
+            for i in indices.flatten():
+                label_id = ids_list[i]
+                if label_id in self.COCO_NAMES:
+                    label_name = self.COCO_NAMES[label_id]
+                    conf = confs_list[i]
+                    res["objects"].append({
+                        "label": label_name,
+                        "confidence": round(conf, 3),
+                        "box": boxes_list[i]          # 保存原始像素坐标（在 320x320 图像上）
+                    })
+                    if label_id == 0:
+                        res["person_detected"] = True
+                        final_max_conf = max(final_max_conf, conf)
+
+            if res["person_detected"]:
+                res["confidence"] = final_max_conf
+
+        return res
 
     def capture_and_analyze(self) -> dict:
-        """
-        Grab one JPEG from /capture, analyze, return result.
-        Use this for event-driven triggers (gas alert, voice command, etc.)
-        Does NOT require stream to be running.
-        """
         try:
-            resp = requests.get(self._capture_url, timeout=5)
+            resp = requests.get(self._capture_url, timeout=3)
             if resp.status_code != 200:
-                log.warning(f"Capture HTTP {resp.status_code}")
-                return {"frame_available": False}
+                return {"frame_available": False, "method": "rknn_npu"}
 
-            arr   = np.frombuffer(resp.content, np.uint8)
-            frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            frame = cv2.imdecode(np.frombuffer(resp.content, np.uint8), cv2.IMREAD_COLOR)
             if frame is None:
-                log.warning("Frame decode failed")
-                return {"frame_available": False}
+                return {"frame_available": False, "method": "rknn_npu"}
 
-            result = self._analyze_frame(frame)
-            log.info(f"Capture analysis: person={result['person_detected']} "
-                     f"fire={result['fire_detected']} "
-                     f"objects={[o['label'] for o in result['objects']]} "
-                     f"method={result['method']}")
-            return result
+            input_data = self._preprocess(frame)
+            # 执行推理，data_format 必须与输入布局匹配：NHWC
+            outputs = self._rknn.inference(inputs=[input_data], data_format='nhwc')
 
-        except requests.exceptions.Timeout:
-            log.warning("Capture timeout - ESP32-CAM not responding")
-            return {"frame_available": False}
+            status = self._postprocess(outputs)
+
+            if status.get("person_detected"):
+                self._save_detection_image(frame, status)
+
+            with self._lock:
+                self._result = status
+            return status
+
         except Exception as e:
-            log.error(f"Capture error: {e}")
-            return {"frame_available": False}
-
-    # ==================== Stream loop (continuous monitoring) ====================
-
-    def start_stream_loop(self):
-        """
-        Background thread: pull MJPEG stream, analyze every N seconds,
-        push result to data_bus for rule engine and LLM.
-        """
-        if self._running:
-            log.warning("Vision stream loop already running")
-            return
-
-        self._running = True
-
-        def _loop():
-            cap        = None
-            last_infer = 0
-
-            while self._running:
-                try:
-                    # (re)connect stream
-                    if cap is None or not cap.isOpened():
-                        log.info(f"Connecting to {self._stream_url}")
-                        cap = cv2.VideoCapture(self._stream_url)
-                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-                        if not cap.isOpened():
-                            log.warning("Stream not available, retry in 5s")
-                            time.sleep(5)
-                            continue
-
-                    ret, frame = cap.read()
-                    if not ret:
-                        log.warning("Frame read failed, reconnecting...")
-                        cap.release()
-                        cap = None
-                        time.sleep(2)
-                        continue
-
-                    # Rate-limit inference
-                    now = time.time()
-                    if now - last_infer < self._interval:
-                        time.sleep(0.1)
-                        continue
-
-                    result    = self._analyze_frame(frame)
-                    last_infer = now
-
-                    # Update internal cache
-                    with self._lock:
-                        self._result = result
-
-                    # Push to data_bus (imported lazily to avoid circular import)
-                    self._push_to_data_bus(result)
-
-                    # Log alerts
-                    if result.get("person_detected") or result.get("fire_detected"):
-                        log.warning(
-                            f"VISION ALERT | person={result['person_detected']} "
-                            f"fire={result['fire_detected']} "
-                            f"conf={result['confidence']}"
-                        )
-
-                except Exception as e:
-                    log.error(f"Vision stream loop error: {e}")
-                    if cap:
-                        cap.release()
-                        cap = None
-                    time.sleep(3)
-
-            if cap:
-                cap.release()
-            log.info("Vision stream loop stopped")
-
-        t = threading.Thread(target=_loop, daemon=True, name="vision_stream")
-        t.start()
-        log.info(f"Vision stream loop started "
-                 f"(interval={self._interval}s, "
-                 f"yolo={'yes' if self._model else 'no'})")
-
-    def _push_to_data_bus(self, result: dict):
-        try:
-            from mqtt.broker_client import data_bus
-            data_bus["esp32cam_vision"] = {
-                "data":      {"data": {"vision": result}},
-                "timestamp": time.time(),
+            log.error(f"Analysis Error: {e}")
+            return {
+                "frame_available": False,
+                "person_detected": False,
+                "confidence": 0.0,
+                "objects": [],
+                "method": "rknn_npu",
+                "error": str(e)
             }
-        except Exception:
-            pass  # data_bus not available yet, skip silently
 
-    def stop_stream_loop(self):
-        self._running = False
+    def _save_detection_image(self, frame, result):
+        h, w = frame.shape[:2]
+        for obj in result.get("objects", []):
+            bx, by, bw, bh = obj["box"]          # 这些坐标是在 320x320 图像上的绝对坐标
+            # 映射回原始图像尺寸
+            x1 = max(0, int(bx * w / 320))
+            y1 = max(0, int(by * h / 320))
+            x2 = min(w, int((bx + bw) * w / 320))
+            y2 = min(h, int((by + bh) * h / 320))
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(frame, f"{obj['label']} {obj['confidence']:.2f}", (x1, y1-10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-    # ==================== Get latest result ====================
-
-    def get_result(self) -> dict:
-        """Return latest cached result (thread-safe)."""
-        with self._lock:
-            return dict(self._result)
+        path = os.path.join(self._save_dir, f"alert_{int(time.time())}.jpg")
+        cv2.imwrite(path, frame)
 
     def get_semantic_summary(self) -> str:
-        """
-        Return a human-readable string for LLM context injection.
-        Example: "Vision: person detected (conf=0.87), no fire"
-        """
-        r = self.get_result()
-        if not r.get("frame_available", False):
+        with self._lock:
+            r = dict(self._result)
+
+        if not r.get("frame_available"):
             return "Vision: camera offline"
 
-        parts = []
-        if r.get("person_detected"):
-            parts.append(f"person detected (conf={r['confidence']:.2f})")
-        if r.get("fire_detected"):
-            parts.append("fire/smoke detected")
-        if r.get("objects"):
-            labels = [o["label"] for o in r["objects"][:3]]
-            parts.append(f"objects: {', '.join(labels)}")
+        max_conf = r.get('confidence', 0.0)
 
-        summary = "Vision: " + ("; ".join(parts) if parts else "no alerts, scene normal")
-        return summary
+        if r.get("person_detected"):
+            return f"Vision: person detected (conf={max_conf:.3f})"
+        else:
+            return f"Vision: normal (max_NPU_conf_seen={max_conf:.3f})"
+
+    def release(self):
+        if self._rknn:
+            self._rknn.release()

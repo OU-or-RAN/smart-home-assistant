@@ -13,11 +13,15 @@ esp32cam/sdkconfig
 esp32cam/sdkconfig.old
 esp32cam/sdkconfig.defaults
 
+
 # Python
 edge/__pycache__/
 edge/**/__pycache__/
 *.pyc
 .env
+
+rknn-toolkit2/
+venv39_rknn_convert/
 
 # 敏感配置（含WiFi密码等）
 sdkconfig.defaults

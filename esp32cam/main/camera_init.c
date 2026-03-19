@@ -6,7 +6,6 @@ static const char *TAG = "camera_init";
 
 esp_err_t camera_init(void)
 {
-    // 检查 PSRAM 是否可用
     size_t psram_size = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     ESP_LOGI(TAG, "PSRAM free: %d bytes", psram_size);
 
@@ -15,11 +14,11 @@ esp_err_t camera_init(void)
 
     if (psram_size > 100000) {
         fb_location = CAMERA_FB_IN_PSRAM;
-        frame_size  = FRAMESIZE_VGA;       // PSRAM可用：640x480
+        frame_size  = FRAMESIZE_VGA;
         ESP_LOGI(TAG, "Using PSRAM frame buffer, VGA");
     } else {
         fb_location = CAMERA_FB_IN_DRAM;
-        frame_size  = FRAMESIZE_QVGA;      // 无PSRAM：降级到320x240
+        frame_size  = FRAMESIZE_QVGA;
         ESP_LOGW(TAG, "PSRAM unavailable, using DRAM frame buffer, QVGA");
     }
 
@@ -47,10 +46,10 @@ esp_err_t camera_init(void)
 
         .pixel_format   = PIXFORMAT_JPEG,
         .frame_size     = frame_size,
-        .jpeg_quality   = 10,              // OPTIMIZED: 降低质量，提高压缩率和帧率
-        .fb_count       = 2,               // OPTIMIZED: 双缓冲，提高流畅度
+        .jpeg_quality   = 10,
+        .fb_count       = 2,
         .fb_location    = fb_location,
-        .grab_mode      = CAMERA_GRAB_WHEN_EMPTY,  // OPTIMIZED: 确保不丢帧
+        .grab_mode      = CAMERA_GRAB_WHEN_EMPTY,
     };
 
     esp_err_t ret = esp_camera_init(&config);
@@ -60,14 +59,53 @@ esp_err_t camera_init(void)
     }
 
     sensor_t *s = esp_camera_sensor_get();
-    if (s != NULL && s->id.PID == OV3660_PID) {
-        s->set_vflip(s, 1);
-        s->set_brightness(s, 1);       // OPTIMIZED: 调整亮度
-        s->set_contrast(s, 1);         // OPTIMIZED: 提高对比度，加速采集
-        s->set_saturation(s, -1);      // OPTIMIZED: 微调饱和度
-        ESP_LOGI(TAG, "OV3660 sensor configured");
+    if (s == NULL) {
+        ESP_LOGE(TAG, "Failed to get camera sensor");
+        return ESP_FAIL;
     }
 
+    // ==================== 曝光控制（解决过曝问题）====================
+
+    // 开启自动曝光控制
+    s->set_exposure_ctrl(s, 1);
+
+    // 开启 AEC DSP 算法（比基础 AEC 更稳定）
+    s->set_aec2(s, 1);
+
+    // 降低 AE 目标亮度：范围 -2 ~ +2，-1 可有效抑制过曝
+    s->set_ae_level(s, -1);
+
+    // 限制最大曝光时间，防止强光下曝光过长
+    // 单位：行数，OV2640 @ 20MHz，1600 约对应 1/12s
+    s->set_aec_value(s, 800);
+
+    // 开启自动增益控制
+    s->set_gain_ctrl(s, 1);
+
+    // 限制最大增益倍数：0=2x, 1=4x, 2=8x, 3=16x, 4=32x
+    // 设为 1（4x），避免暗场景下增益过高引入噪声
+    s->set_agc_gain(s, 1);
+
+    // ==================== 白平衡（减少色偏）====================
+    s->set_whitebal(s, 1);     // 开启自动白平衡
+    s->set_awb_gain(s, 1);     // 开启 AWB 增益
+
+    // ==================== 图像质量调整 ====================
+    s->set_brightness(s, 0);   // 亮度：0 为中性（原来是+1，会加重过曝）
+    s->set_contrast(s, 1);     // 对比度：+1 提高层次感
+    s->set_saturation(s, 0);   // 饱和度：0 为自然色
+
+    // OV3660 特殊处理
+    if (s->id.PID == OV3660_PID) {
+        s->set_vflip(s, 1);
+        ESP_LOGI(TAG, "OV3660 sensor: vflip enabled");
+    }
+
+    // ==================== 镜头校正（减少边缘畸变）====================
+    s->set_lenc(s, 1);         // 开启镜头畸变校正
+    s->set_dcw(s, 1);          // 开启降采样插值
+
+    ESP_LOGI(TAG, "Camera initialized: AEC=on, AE_level=-1, AWB=on");
     ESP_LOGI(TAG, "Camera initialized successfully");
     return ESP_OK;
 }
