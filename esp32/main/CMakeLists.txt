@@ -10,4 +10,5 @@ idf_component_register(
         esp_event
         protocol_examples_common
         log
+        esp_wifi
 )

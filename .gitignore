@@ -20,13 +20,21 @@ edge/**/__pycache__/
 *.pyc
 .env
 
+
 rknn-toolkit2/
 venv39_rknn_convert/
+main/
+**/build/
+
 
 # 敏感配置（含WiFi密码等）
-sdkconfig.defaults
+**/sdkconfig.defaults
+**/sdkconfig.old
+**/sdkconfig
 deploy/mosquitto/*.conf
 
 # 数据库日志
 *.db
 *.sqlite
+data/
+logs/
