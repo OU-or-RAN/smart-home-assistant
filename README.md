@@ -39,9 +39,6 @@
 
 </div>
 
-> 💡 **Tip / 提示**: If the inline player above does not appear, replace `REPLACE_WITH_UPLOADED_VIDEO_URL` with the `user-attachments` URL produced after uploading your `demo.mp4` to a GitHub issue or the README editor. You may also host on **Bilibili / YouTube** and replace the fallback link.
-> 如果上方内嵌播放器未显示，请把 `REPLACE_WITH_UPLOADED_VIDEO_URL` 替换为上传 `demo.mp4` 到 Issue 或 README 编辑器后生成的 `user-attachments` 链接；也可托管到 **Bilibili / YouTube** 并替换备用链接。
-
 ---
 
 ## ✨ Highlights
@@ -144,7 +141,7 @@ python3 edge/mqtt/broker_client.py
 
 Released under the **MIT License** (see `LICENSE`).
 
-This project is the engineering implementation of an undergraduate thesis at the School of Computer Science, University of South China (南华大学计算机学院). If it helps your work, please consider linking back to this repository.
+If it helps your work, please consider linking back to this repository.
 
 <br/>
 
