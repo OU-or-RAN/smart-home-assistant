@@ -1,232 +1,262 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C6 | ESP32-H2 | ESP32-S2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | -------- | -------- |
+<div align="center">
 
-# ESP-MQTT sample application
-(See the README.md file in the upper level 'examples' directory for more information about examples.)
+# 🏠 Multi-modal Edge Smart Home Assistant
+### Based on RK3588 & ESP32 · 基于 RK3588 与 ESP32 的多模态边缘智能家居助理
 
-This example connects to the broker URI selected using `idf.py menuconfig` (using mqtt tcp transport) and as a demonstration subscribes/unsubscribes and send a message on certain topic.
-(Please note that the public broker is maintained by the community so may not be always available, for details please see this [disclaimer](https://iot.eclipse.org/getting-started/#sandboxes))
+*A fully-localized, offline-capable, privacy-preserving intelligent home assistant running entirely on resource-constrained edge hardware.*
 
-Note: If the URI equals `FROM_STDIN` then the broker address is read from stdin upon application startup (used for testing)
+*完全本地化、可离线运行、隐私友好的边缘智能家居助理 —— 全部推理与决策都在家庭局域网内闭环完成。*
 
-It uses ESP-MQTT library which implements mqtt client to connect to mqtt broker.
+<br/>
 
-## How to use example
+[![Platform](https://img.shields.io/badge/Main_Controller-RK3588_(LubanCat_4)-1f6feb)](https://github.com/OU-or-RAN/smart-home-assistant)
+[![Nodes](https://img.shields.io/badge/Nodes-ESP32--S3_×2_·_ESP32--CAM-7048e8)](https://github.com/OU-or-RAN/smart-home-assistant)
+[![Privacy](https://img.shields.io/badge/Data-Never_Leaves_Home-2da44e)](https://github.com/OU-or-RAN/smart-home-assistant)
+[![NPU](https://img.shields.io/badge/NPU-6_TOPS_INT8-fb8500)](https://github.com/OU-or-RAN/smart-home-assistant)
+[![License](https://img.shields.io/badge/License-MIT-lightgrey)](LICENSE)
 
-### Hardware Required
+**English** · [中文](#-中文说明)
 
-This example can be executed on any ESP32 board, the only required interface is WiFi and connection to internet.
+</div>
 
-### Configure the project
+---
 
-* Open the project configuration menu (`idf.py menuconfig`)
-* Configure Wi-Fi or Ethernet under "Example Connection Configuration" menu. See "Establishing Wi-Fi or Ethernet Connection" section in [examples/protocols/README.md](../../README.md) for more details.
+## 🎬 Demo Video / 演示视频
 
-### Build and Flash
+> The demo below shows node provisioning, sensor monitoring, flame/gas alerting, YOLO person detection, rule-engine response, and on-device LLM interaction.
+> 下方演示涵盖节点入网、传感器监控、火焰/燃气告警、YOLO 人物检测、规则引擎响应以及板端 LLM 交互。
 
-Build the project and flash it to the board, then run monitor tool to view serial output:
+<div align="center">
 
-```
-idf.py -p PORT flash monitor
-```
+<video src="https://github.com/user-attachments/assets/e56add76-23f7-45f3-b22c-1b5cbd687954" controls width="80%">
+  Your browser does not support the video tag. 你的浏览器不支持内嵌视频播放。
+</video>
 
-(To exit the serial monitor, type ``Ctrl-]``.)
+<br/>
 
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+<!-- Fallback link in case inline playback fails / 内嵌播放失败时的备用链接 -->
+▶️ **[Click here to watch the demo / 点此观看完整演示](https://github.com/OU-or-RAN/smart-home-assistant)**
 
-## Example Output
+</div>
 
-```
-I (3714) event: sta ip: 192.168.0.139, mask: 255.255.255.0, gw: 192.168.0.2
-I (3714) system_api: Base MAC address is not set, read default base MAC address from BLK0 of EFUSE
-I (3964) MQTT_CLIENT: Sending MQTT CONNECT message, type: 1, id: 0000
-I (4164) MQTT_EXAMPLE: MQTT_EVENT_CONNECTED
-I (4174) MQTT_EXAMPLE: sent publish successful, msg_id=41464
-I (4174) MQTT_EXAMPLE: sent subscribe successful, msg_id=17886
-I (4174) MQTT_EXAMPLE: sent subscribe successful, msg_id=42970
-I (4184) MQTT_EXAMPLE: sent unsubscribe successful, msg_id=50241
-I (4314) MQTT_EXAMPLE: MQTT_EVENT_PUBLISHED, msg_id=41464
-I (4484) MQTT_EXAMPLE: MQTT_EVENT_SUBSCRIBED, msg_id=17886
-I (4484) MQTT_EXAMPLE: sent publish successful, msg_id=0
-I (4684) MQTT_EXAMPLE: MQTT_EVENT_SUBSCRIBED, msg_id=42970
-I (4684) MQTT_EXAMPLE: sent publish successful, msg_id=0
-I (4884) MQTT_CLIENT: deliver_publish, message_length_read=19, message_length=19
-I (4884) MQTT_EXAMPLE: MQTT_EVENT_DATA
-TOPIC=/topic/qos0
-DATA=data
-I (5194) MQTT_CLIENT: deliver_publish, message_length_read=19, message_length=19
-I (5194) MQTT_EXAMPLE: MQTT_EVENT_DATA
-TOPIC=/topic/qos0
-DATA=data
-```
+> 💡 **Tip / 提示**: If the inline player above does not appear, replace `REPLACE_WITH_UPLOADED_VIDEO_URL` with the `user-attachments` URL produced after uploading your `demo.mp4` to a GitHub issue or the README editor. You may also host on **Bilibili / YouTube** and replace the fallback link.
+> 如果上方内嵌播放器未显示，请把 `REPLACE_WITH_UPLOADED_VIDEO_URL` 替换为上传 `demo.mp4` 到 Issue 或 README 编辑器后生成的 `user-attachments` 链接；也可托管到 **Bilibili / YouTube** 并替换备用链接。
 
-## Using Wi-Fi connection with ESP32P4
+---
 
-It is possible to use Wi-Fi connection on targets that do not support native Wi-Fi peripheral. This example demonstrates using `esp_wifi_remote` on ESP32P4 in the test configuration defined as `sdkconfig.ci.p4_wifi`. This configuration requires another ESP target with native Wi-Fi support physically connected to the ESP32-P4.
+## ✨ Highlights
 
-### Configure master-slave verification
+- **Fully local & offline** — All raw data (video frames, audio, sensor readings) is processed inside the home LAN. The system keeps working even with the Internet completely disconnected. Nothing is sent to any cloud.
+- **Three-tier heterogeneous architecture** — *Perception → Coprocessing → Decision*, letting each hardware tier do what it does best.
+- **Dual-track decision pipeline** — A deterministic **YAML rule engine** for safety enforcement runs in parallel with a flexible **LLM agent** for natural-language interaction. Safety alerts work even if the LLM is offline.
+- **Four AI models concurrently on one board** — SenseVoice (STT), sherpa-onnx (TTS), YOLOv8n (object detection) and DeepSeek-R1-Distill-Qwen-1.5B (LLM), exploiting the previously idle 6 TOPS NPU to offload the CPU.
+- **Three-level time synchronization** — Hardware NTP alignment + temporal-window alignment + event-driven alignment, plus a **data-quality scoring** mechanism (`q ∈ [0,1]`) that drives graceful degradation.
 
-In order to secure the physical connection between the ESP32-P4 (master) and the slave device, it is necessary to set certificates and keys for each side.
-To bootstrap this step, you can use one-time generated self-signed RSA keys and certificates running:
-```
-./managed_components/espressif__esp_wifi_remote/examples/test_certs/generate_test_certs.sh espressif.local
-```
+---
 
-### Configure the slave project
-
-It is recommended to create a new project from `esp_wifi_remote` component's example with
-```
-idf.py create-project-from-example "espressif/esp_wifi_remote:server"
-```
-but you can also build and flash the slave project directly from the `managed_components` directory using:
-```
-idf.py -C managed_components/espressif__esp_wifi_remote/examples/server/ -B build_slave 
-```
-
-Please follow these steps to setup the slave application:
-* `idf.py set-target` -- choose the slave target (must support Wi-Fi)
-* `idf.py menuconfig` -- configure the physical connection and verification details:
-  - `CONFIG_ESP_WIFI_REMOTE_EPPP_CLIENT_CA` -- CA for verifying ESP32-P4 application
-  - `CONFIG_ESP_WIFI_REMOTE_EPPP_SERVER_CRT` -- slave's certificate
-  - `CONFIG_ESP_WIFI_REMOTE_EPPP_SERVER_KEY` -- slave's private key
-* `idf.py build flash monitor`
-
-### Configure the master project (ESP32-P4)
-
-similarly to the slave project, we have to configure
-* the physical connection
-* the verification
-  - `CONFIG_ESP_WIFI_REMOTE_EPPP_SERVER_CA` -- CA for verifying the slave application
-  - `CONFIG_ESP_WIFI_REMOTE_EPPP_CLIENT_CRT` -- our own certificate
-  - `CONFIG_ESP_WIFI_REMOTE_EPPP_CLIENT_KEY` -- our own private key
-
-After project configuration, you build and flash the board with
-```
-idf.py build flash monitor
-```
-
-### Example Output of the slave device
+## 🧱 System Architecture
 
 ```
-I (7982) main_task: Returned from app_main()
-I (8242) rpc_server: Received header id 2
-I (8242) pp: pp rom version: 5b8dcfa
-I (8242) net80211: net80211 rom version: 5b8dcfa
-I (8252) wifi:wifi driver task: 4082be8c, prio:23, stack:6656, core=0
-I (8252) wifi:wifi firmware version: feaf82d
-I (8252) wifi:wifi certification version: v7.0
-I (8252) wifi:config NVS flash: enabled
-I (8262) wifi:config nano formatting: disabled
-I (8262) wifi:mac_version:HAL_MAC_ESP32AX_761,ut_version:N, band:0x1
-I (8272) wifi:Init data frame dynamic rx buffer num: 32
-I (8272) wifi:Init static rx mgmt buffer num: 5
-I (8282) wifi:Init management short buffer num: 32
-I (8282) wifi:Init dynamic tx buffer num: 32
-I (8292) wifi:Init static tx FG buffer num: 2
-I (8292) wifi:Init static rx buffer size: 1700 (rxctrl:92, csi:512)
-I (8302) wifi:Init static rx buffer num: 10
-I (8302) wifi:Init dynamic rx buffer num: 32
-I (8302) wifi_init: rx ba win: 6
-I (8312) wifi_init: accept mbox: 6
-I (8312) wifi_init: tcpip mbox: 32
-I (8322) wifi_init: udp mbox: 6
-I (8322) wifi_init: tcp mbox: 6
-I (8322) wifi_init: tcp tx win: 5760
-I (8332) wifi_init: tcp rx win: 5760
-I (8332) wifi_init: tcp mss: 1440
-I (8342) wifi_init: WiFi IRAM OP enabled
-I (8342) wifi_init: WiFi RX IRAM OP enabled
-I (8352) wifi_init: WiFi SLP IRAM OP enabled
-I (8362) rpc_server: Received header id 11
-I (8362) rpc_server: Received header id 4
-I (8372) rpc_server: Received header id 6
-I (8372) phy_init: phy_version 270,339aa07,Apr  3 2024,16:36:11
-I (8492) wifi:enable tsf
-I (8492) rpc_server: Received WIFI event 41
-I (8502) rpc_server: Received WIFI event 2
-I (8732) rpc_server: Received header id 10
-I (8742) rpc_server: Received header id 5
-I (8752) rpc_server: Received header id 8
-I (11452) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
-I (11452) wifi:(connect)dot11_authmode:0x3, pairwise_cipher:0x3, group_cipher:0x1
-I (11452) wifi:state: init -> auth (0xb0)
-I (11462) rpc_server: Received WIFI event 41
-I (11462) wifi:state: auth -> assoc (0x0)
-I (11472) wifi:(assoc)RESP, Extended Capabilities length:8, operating_mode_notification:0
-I (11472) wifi:(assoc)RESP, Extended Capabilities, MBSSID:0, TWT Responder:0, OBSS Narrow Bandwidth RU In OFDMA Tolerance:0
-I (11482) wifi:Extended Capabilities length:8, operating_mode_notification:1
-I (11492) wifi:state: assoc -> run (0x10)
-I (11492) wifi:(trc)phytype:CBW20-SGI, snr:50, maxRate:144, highestRateIdx:0
-W (11502) wifi:(trc)band:2G, phymode:3, highestRateIdx:0, lowestRateIdx:11, dataSchedTableSize:14
-I (11512) wifi:(trc)band:2G, rate(S-MCS7, rateIdx:0), ampdu(rate:S-MCS7, schedIdx(0, stop:8)), snr:50, ampduState:wait operational
-I (11522) wifi:ifidx:0, rssi:-45, nf:-95, phytype(0x3, CBW20-SGI), phymode(0x3, 11bgn), max_rate:144, he:0, vht:0, ht:1
-I (11532) wifi:(ht)max.RxAMPDULenExponent:3(65535 bytes), MMSS:6(8 us)
-W (11542) wifi:<ba-add>idx:0, ifx:0, tid:0, TAHI:0x1002cb4, TALO:0x1b942980, (ssn:0, win:64, cur_ssn:0), CONF:0xc0000005
-I (11572) wifi:connected with Cermakowifi, aid = 2, channel 6, BW20, bssid = 80:29:94:1b:b4:2c
-I (11572) wifi:cipher(pairwise:0x3, group:0x1), pmf:0, security:WPA2-PSK, phy:11bgn, rssi:-45
-I (11582) wifi:pm start, type: 1, twt_start:0
-
-I (11582) wifi:pm start, type:1, aid:0x2, trans-BSSID:80:29:94:1b:b4:2c, BSSID[5]:0x2c, mbssid(max-indicator:0, index:0), he:0
-I (11592) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
-I (11602) wifi:set rx beacon pti, rx_bcn_pti: 10, bcn_timeout: 25000, mt_pti: 10, mt_time: 10000
-I (11612) wifi:[ADDBA]TX addba request, tid:0, dialogtoken:1, bufsize:64, A-MSDU:0(not supported), policy:1(IMR), ssn:0(0x0)
-I (11622) wifi:[ADDBA]TX addba request, tid:7, dialogtoken:2, bufsize:64, A-MSDU:0(not supported), policy:1(IMR), ssn:0(0x20)
-I (11632) wifi:[ADDBA]TX addba request, tid:5, dialogtoken:3, bufsize:64, A-MSDU:0(not supported), policy:1(IMR), ssn:0(0x0)
-I (11642) wifi:[ADDBA]RX addba response, status:0, tid:7/tb:0(0x1), bufsize:64, batimeout:0, txa_wnd:64
-I (11652) wifi:[ADDBA]RX addba response, status:0, tid:5/tb:0(0x1), bufsize:64, batimeout:0, txa_wnd:64
-I (11662) wifi:[ADDBA]RX addba response, status:0, tid:0/tb:1(0x1), bufsize:64, batimeout:0, txa_wnd:64
-I (11672) wifi:AP's beacon interval = 102400 us, DTIM period = 1
-I (11682) rpc_server: Received WIFI event 4
-I (15682) esp_netif_handlers: sta ip: 192.168.0.33, mask: 255.255.255.0, gw: 192.168.0.1
-I (15682) rpc_server: Received IP event 0
-I (15682) rpc_server: Main DNS:185.162.24.55
-I (15682) rpc_server: IP address:192.168.0.33
+┌──────────────────────── Decision Layer / 决策层 ────────────────────────┐
+│  LubanCat 4 (RK3588, 8GB, 6 TOPS NPU)                                    │
+│  ├─ Rule Engine (YAML, 1 Hz)   ├─ Multimodal Agent (LLM intent)         │
+│  ├─ YOLOv8n (RKNN)             ├─ SenseVoice STT + sherpa-onnx TTS       │
+│  └─ Time Sync (TimeMaster + MultimodalAligner) · SQLite · data_bus      │
+└──────────────────────────────────┬──────────────────────────────────────┘
+                MQTT (status/alert/control)  │  HTTP/MJPEG (video)
+┌──────────────────── Coprocessing Layer / 协处理层 ──────────────────────┐
+│  ESP32-CAM (OV3660) — MJPEG over HTTP streaming, MQTT control plane      │
+└──────────────────────────────────┬──────────────────────────────────────┘
+┌─────────────────────── Perception Layer / 感知层 ───────────────────────┐
+│  ESP32-S3 #1 (S3_001): DHT11 + MQ-2 + YL-38   → kitchen                  │
+│  ESP32-S3 #2 (S3_002): SHT40 + MQ-4           → gas-meter area           │
+│  FreeRTOS tasks · local emergency response · MQTT status reporting       │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Example Output of the master device (ESP32-P4)
+All nodes connect over Wi-Fi on a `172.20.10.0/24` LAN with static IPs; a single Mosquitto broker on the RK3588 decouples every node.
+
+---
+
+## 🛠️ Hardware & Software
+
+| Category | Item |
+| --- | --- |
+| **Main controller** | LubanCat 4 (RK3588, 8 GB LPDDR4x, 6 TOPS NPU) |
+| **Perception nodes** | 2 × ESP32-S3-DevKitC |
+| **Vision node** | AI-Thinker ESP32-CAM (OV3660, 4 MB PSRAM) |
+| **Sensors** | DHT11, SHT40 (T/RH) · MQ-2, MQ-4 (gas) · YL-38 (flame) |
+| **OS** | Ubuntu 20.04 LTS (board) · Windows 11 + WSL Ubuntu 22.04 (dev) |
+| **Firmware** | ESP-IDF v5.3.1 (FreeRTOS) |
+| **Runtime** | Python 3.8 (board) · Mosquitto 2.0.15 · RKNN / RKLLM |
+| **Models** | YOLOv8n (W8A8 INT8 → RKNN) · DeepSeek-R1-Distill-Qwen-1.5B (W8A8 → RKLLM) · SenseVoice · sherpa-onnx |
+
+---
+
+## 📊 Measured Performance
+
+| Metric | Target | Measured |
+| --- | --- | --- |
+| Flame alert → LED on | ≤ 2 s | **1.6 s** |
+| YOLO single-frame latency | ≤ 100 ms | **45 ms** |
+| YOLO inference frame rate | ≥ 5 fps | **0.45 fps** |
+| LLM generation speed | ≥ 15 token/s | **7 token/s** |
+| MQTT end-to-end latency | ≤ 500 ms | **128 ms** |
+
+> Note: the on-device 1.5B LLM reliably handles conversational queries but is still limited at faithful sensor-grounded answers and strictly-formatted control-command output — an honest limitation discussed in the thesis and a key direction for future work.
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# 1) Clone
+git clone https://github.com/OU-or-RAN/smart-home-assistant.git
+cd smart-home-assistant
+
+# 2) Flash ESP32 firmware (ESP-IDF v5.3.1)
+#    Set DEVICE_INDEX / sensor enable macros in mqtt_handler.h for each board
+idf.py -p <PORT> flash monitor
+
+# 3) On the RK3588 board: start the MQTT broker
+mosquitto -c mosquitto.conf
+
+# 4) Start the LLM service (loads RKLLM model)
+python3 flask_server.py --rkllm_model_path <path>.rkllm --target_platform rk3588
+
+# 5) Start the main controller
+python3 edge/mqtt/broker_client.py
+```
+
+> Configure Wi-Fi SSID/password, static IPs and the broker address before flashing. See the firmware headers and `CONFIG` in `main.py` for details.
+
+---
+
+## 🗺️ Roadmap
+
+- **Near-term** — Add physical actuators (Sonoff/Shelly smart switches) for closed-loop control; make the time-sync window & quality weights adaptive to live network conditions.
+- **Mid-term** — Grow the rule library from 8 to 30+ rules; build a web-based visual rule editor; add knowledge-graph-based dialogue context.
+- **Long-term** — Cross-home **federated learning** with differential privacy; per-home model self-evolution via LoRA fine-tuning on local logs.
+
+---
+
+## 📄 License & Citation
+
+Released under the **MIT License** (see `LICENSE`).
+
+This project is the engineering implementation of an undergraduate thesis at the School of Computer Science, University of South China (南华大学计算机学院). If it helps your work, please consider linking back to this repository.
+
+<br/>
+
+---
+<br/>
+
+<div align="center">
+
+# 🏠 中文说明
+
+</div>
+
+[English](#-multi-modal-edge-smart-home-assistant) · **中文**
+
+智能家居正在走进千家万户，但用户对**响应速度、隐私安全、断网可用性**的期待也越来越高。主流方案大多把计算中心放在云端：网络一堵，体验就降级；数据上云，隐私就有泄露风险；连接一断，设备就成摆设。
+
+本项目围绕这些痛点，搭建了一套以 **RK3588 为主控、ESP32 系列芯片为协处理器**的多模态边缘智能家居助理系统，所有原始传感器、图像、音频数据**足不出户**，全部推理与决策在家庭局域网内本地完成。
+
+## ✨ 核心特性
+
+- **全本地化 · 可离线** —— 视频帧、音频、传感器读数全部在本地消化，断网也能继续工作，不向任何云端发送原始数据。
+- **三层异构架构** —— *感知层 → 协处理层 → 决策层*，让不同算力等级的硬件各司其职。
+- **双轨并行决策** —— 确定性的 **YAML 规则引擎**负责安全兜底，灵活的 **LLM 代理**负责自然语言交互；二者并行，即便 LLM 离线，安全告警依然有效。
+- **四模型并发驻留单板** —— SenseVoice（语音转文本）、sherpa-onnx（文本转语音）、YOLOv8n（目标检测）、DeepSeek-R1-Distill-Qwen-1.5B（语言模型），充分利用闲置的 6 TOPS NPU 分担 CPU 压力。
+- **三级时间同步** —— 硬件 NTP 对齐 + 时间窗口对齐 + 事件驱动对齐，并引入**数据质量评分**（`q ∈ [0,1]`）驱动分层降级决策。
+
+## 🧱 系统架构
 
 ```
-I (445) example_connect: Start example_connect.
-I (455) uart: queue free spaces: 16
-I (455) eppp_link: Waiting for IP address 0
-I (3195) esp-netif_lwip-ppp: Connected
-I (3195) eppp_link: Got IPv4 event: Interface "pppos_client(EPPP0)" address: 192.168.11.2
-I (3195) esp-netif_lwip-ppp: Connected
-I (3195) eppp_link: Connected! 0
-I (5475) example_connect: Waiting for IP(s)
-I (8405) esp_wifi_remote: esp_wifi_internal_reg_rxcb: sta: 0x4001c68a
-I (9445) example_connect: Got IPv6 event: Interface "pppos_client" address: fe80:0000:0000:0000:5632:04ff:fe08:5054, type: ESP_IP6_ADDR_IS_LINK_LOCAL
-I (12415) rpc_client: Main DNS:185.162.24.55
-I (12415) esp_netif_handlers: pppos_client ip: 192.168.11.2, mask: 255.255.255.255, gw: 192.168.11.1
-I (12415) rpc_client: EPPP IP:192.168.11.1
-I (12415) example_connect: Got IPv4 event: Interface "pppos_client" address: 192.168.11.2
-I (12425) rpc_client: WIFI IP:192.168.0.33
-I (12435) example_common: Connected to pppos_client
-I (12445) rpc_client: WIFI GW:192.168.0.1
-I (12455) example_common: - IPv6 address: fe80:0000:0000:0000:5632:04ff:fe08:5054, type: ESP_IP6_ADDR_IS_LINK_LOCAL
-I (12455) rpc_client: WIFI mask:255.255.255.0
-I (12465) example_common: Connected to pppos_client
-I (12475) example_common: - IPv4 address: 192.168.11.2,
-I (12475) example_common: - IPv6 address: fe80:0000:0000:0000:5c3b:1291:05ca:6dc8, type: ESP_IP6_ADDR_IS_LINK_LOCAL
-I (12495) mqtt_example: Other event id:7
-I (12495) main_task: Returned from app_main()
-I (12905) mqtt_example: MQTT_EVENT_CONNECTED
-I (12905) mqtt_example: sent publish successful, msg_id=36013
-I (12905) mqtt_example: sent subscribe successful, msg_id=44233
-I (12905) mqtt_example: sent subscribe successful, msg_id=36633
-I (12915) mqtt_example: sent unsubscribe successful, msg_id=15480
-I (13115) mqtt_example: MQTT_EVENT_PUBLISHED, msg_id=36013
-I (13415) mqtt_example: MQTT_EVENT_SUBSCRIBED, msg_id=44233
-I (13415) mqtt_example: sent publish successful, msg_id=0
-I (13415) mqtt_example: MQTT_EVENT_SUBSCRIBED, msg_id=36633
-I (13415) mqtt_example: sent publish successful, msg_id=0
-I (13425) mqtt_example: MQTT_EVENT_DATA
-TOPIC=/topic/qos1
-DATA=data_3
-I (13435) mqtt_example: MQTT_EVENT_UNSUBSCRIBED, msg_id=15480
-I (13615) mqtt_example: MQTT_EVENT_DATA
-TOPIC=/topic/qos0
-DATA=data
-I (13925) mqtt_example: MQTT_EVENT_DATA
-TOPIC=/topic/qos0
+┌──────────────────────────── 决策层 ────────────────────────────┐
+│  鲁班猫 4 (RK3588, 8GB, 6 TOPS NPU)                              │
+│  ├─ 规则引擎 (YAML, 1 Hz)     ├─ 多模态代理 (LLM 意图理解)       │
+│  ├─ YOLOv8n (RKNN)            ├─ SenseVoice 语音转文本 + sherpa  │
+│  └─ 时间同步 · SQLite 持久化 · data_bus 内存总线                │
+└──────────────────────────────┬──────────────────────────────────┘
+              MQTT (状态/告警/控制)  │  HTTP/MJPEG (视频)
+┌──────────────────────────── 协处理层 ──────────────────────────┐
+│  ESP32-CAM (OV3660) —— MJPEG over HTTP 推流，MQTT 控制面          │
+└──────────────────────────────┬──────────────────────────────────┘
+┌──────────────────────────── 感知层 ────────────────────────────┐
+│  ESP32-S3 #1 (S3_001)：DHT11 + MQ-2 + YL-38   → 厨房             │
+│  ESP32-S3 #2 (S3_002)：SHT40 + MQ-4           → 燃气表区         │
+│  FreeRTOS 任务调度 · 本地应急响应 · MQTT 状态上报                │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+所有节点通过 Wi-Fi 接入 `172.20.10.0/24` 局域网并使用静态 IP；RK3588 上的单个 Mosquitto Broker 实现节点间空间解耦。
+
+## 🛠️ 软硬件清单
+
+| 类别 | 型号 / 版本 |
+| --- | --- |
+| **主控** | 鲁班猫 4（RK3588，8 GB LPDDR4x，6 TOPS NPU） |
+| **感知节点** | ESP32-S3-DevKitC × 2 |
+| **视觉节点** | AI-Thinker ESP32-CAM（OV3660，4 MB PSRAM） |
+| **传感器** | DHT11、SHT40（温湿度）· MQ-2、MQ-4（可燃气体）· YL-38（火焰） |
+| **操作系统** | Ubuntu 20.04 LTS（板端）· Windows 11 + WSL Ubuntu 22.04（开发端） |
+| **固件** | ESP-IDF v5.3.1（FreeRTOS） |
+| **运行时** | Python 3.8（板端）· Mosquitto 2.0.15 · RKNN / RKLLM |
+| **模型** | YOLOv8n（W8A8 INT8 → RKNN）· DeepSeek-R1-Distill-Qwen-1.5B（W8A8 → RKLLM）· SenseVoice · sherpa-onnx |
+
+## 📊 实测性能
+
+| 指标 | 设计目标 | 实测均值 |
+| --- | --- | --- |
+| 火焰告警从触发到 LED 亮 | ≤ 2 s | **1.6 s** |
+| YOLO 单帧检测延迟 | ≤ 100 ms | **45 ms** |
+| YOLO 推理帧率 | ≥ 5 fps | **0.45 fps** |
+| LLM 生成速度 | ≥ 15 token/s | **7 token/s** |
+| MQTT 端到端延迟 | ≤ 500 ms | **128 ms** |
+
+> 说明：板端 1.5B 模型可以胜任对话式查询，但在**忠实引用传感器数值**和**输出格式可靠的控制指令**上仍有短板 —— 这是论文中如实记录的局限，也是后续工作的重点方向。
+
+## 🚀 快速开始
+
+```bash
+# 1) 克隆仓库
+git clone https://github.com/OU-or-RAN/smart-home-assistant.git
+cd smart-home-assistant
+
+# 2) 烧录 ESP32 固件 (ESP-IDF v5.3.1)
+#    在 mqtt_handler.h 顶部修改 DEVICE_INDEX 与传感器接入宏来切换板子角色
+idf.py -p <端口> flash monitor
+
+# 3) 在 RK3588 板端：启动 MQTT Broker
+mosquitto -c mosquitto.conf
+
+# 4) 启动 LLM 服务（加载 RKLLM 模型）
+python3 flask_server.py --rkllm_model_path <模型路径>.rkllm --target_platform rk3588
+
+# 5) 启动主控程序
+python3 edge/main.py
+```
+
+> 烧录前请先配置 Wi-Fi 名称/密码、静态 IP 及 Broker 地址。具体可参考固件头文件与 `main.py` 中的 `CONFIG`。
+
+## 🗺️ 后续规划
+
+- **近期** —— 接入 Sonoff / Shelly 智能开关等物理执行器实现闭环控制；让时间同步窗口与质量权重随网络状况自适应调整。
+- **中期** —— 规则库从 8 条扩充至 30 条以上；开发基于 Web 的可视化规则编辑器；引入基于知识图谱的对话上下文管理。
+- **远期** —— 跨家庭**联邦学习** + 差分隐私；基于本地日志的 LoRA 微调实现模型自我进化。
+
+## 🙏 致谢与许可
+
+本项目以 **MIT 许可证**开源（见 `LICENSE`）。
+
+在实施过程中借助了 ESP-IDF、RKNN、Mosquitto、DeepSeek 等大量开源项目的成果。若本项目对你有帮助，欢迎 Star 与引用本仓库。
+
+<div align="center">
+
+**仓库地址 / Repository**: https://github.com/OU-or-RAN/smart-home-assistant
+
+*"真正的智能不在于堆出多复杂的模型，而在于把普通的组件以正确的方式组合到一块。"*
+
+</div>

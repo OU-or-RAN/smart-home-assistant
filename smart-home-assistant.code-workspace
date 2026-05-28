@@ -1,26 +1,102 @@
 {
     "folders": [
-        {
-            "name": "ESP32-S3",
-            "path": "./esp32"
-        },
-        {
-            "name": "ESP32-CAM",
-            "path": "./esp32cam"
-        },
-        {
-            "name": "Edge (LubanCat4)",
-            "path": "./edge"
-        },
-        {
-            "name": "Root",
-            "path": "."
-        }
+        { "name": "ESP32-S3", "path": "./esp32" },
+        { "name": "ESP32-CAM", "path": "./esp32cam" },
+        { "name": "Edge (LubanCat4)", "path": "./edge" },
+        { "name": "Root", "path": "." }
     ],
     "settings": {
+        // 你原来的 IDF 配置
         "idf.espIdfPath": "${env:IDF_PATH}",
         "[esp32-s3]": {
             "cmake.sourceDirectory": "${workspaceFolder}"
-        }
+        },
+        // ========== 新增 LaTeX Workshop 配置 ==========
+        "latex-workshop.latex.autoBuild.run": "onSave",       // 保存时自动编译
+        "latex-workshop.latex.recipe.default": "latexmk",    // 默认使用 latexmk
+        "latex-workshop.view.pdf.viewer": "tab",             // 在 VSCode 内预览 PDF
+        "latex-workshop.latex.tools": [
+            {
+                "name": "latexmk",
+                "command": "latexmk",
+                "args": [
+                    "-synctex=1",
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "-pdf",
+                    "-outdir=%OUTDIR%",
+                    "%DOC%"
+                ]
+            },
+            {
+                "name": "xelatex",
+                "command": "F:/storage1/texlive/2026/bin/windows/xelatex.exe",
+                "args": [
+                    "-synctex=1",
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "%DOCFILE%"
+                ]
+            },
+            {
+                "name": "biber",
+                "command": "F:/storage1/texlive/2026/bin/windows/biber.exe",
+                "args": [
+                    "-winunicode",
+                    "%DOCFILE%"
+                ]
+            },
+            {
+                "name": "bibtex",
+                "command": "F:/storage1/texlive/2026/bin/windows/bibtex.exe",
+                "args": [
+                    "%DOCFILE%"
+                ]
+            },            
+            {
+                "name": "pdflatex",
+                "command": "pdflatex",
+                "args": [
+                    "-synctex=1",
+                    "-interaction=nonstopmode",
+                    "-file-line-error",
+                    "%DOCFILE%"
+                ]
+            }
+        ],
+        "latex-workshop.latex.recipes": [
+            {
+                "name": "xelatex-biber-xelatex-xelatex",
+                "tools": ["xelatex", "biber", "xelatex", "xelatex"]
+            },
+            {
+                "name": "latexmk 🔃",
+                "tools": ["latexmk"]
+            },
+            {
+                "name": "xelatex",
+                "tools": ["xelatex"]
+            },
+            {
+                "name": "biber",
+                "tools": ["biber"]
+            },
+            {
+                "name": "bibtex",
+                "tools": ["bibtex"]
+            },
+            {
+                "name": "pdflatex",
+                "tools": ["pdflatex"]
+            }
+        ],
+        // 编译后自动清理辅助文件
+        "latex-workshop.latex.clean.fileTypes": [
+            "*.aux", "*.bbl", "*.blg", "*.idx", "*.ind", "*.lof", "*.lot",
+            "*.out", "*.toc", "*.acn", "*.acr", "*.alg", "*.glg", "*.glo",
+            "*.gls", "*.ist", "*.fls", "*.log", "*.fdb_latexmk"
+        ],
+        "latex-workshop.message.error.show": true,
+        "latex-workshop.message.warning.show": true
     }
 }
