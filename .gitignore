@@ -38,3 +38,6 @@ deploy/mosquitto/*.conf
 *.sqlite
 data/
 logs/
+
+paper/*
+Thesis/*

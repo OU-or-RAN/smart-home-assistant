@@ -99,6 +99,16 @@ def main():
         rule_engine    = engine,
     )
 
+    # # 等待 LLM 服务就绪
+    # log.info("Waiting for LLM service to be ready...")
+    # for i in range(30):
+    #     if llm.is_alive():
+    #         log.info("LLM service is ready.")
+    #         break
+    #     time.sleep(1)
+    # else:
+    #     log.warning("LLM service still not ready after 30 seconds. Voice loop may fail.")
+
     # 启动语音对话循环
     agent.start_voice_loop(stop_word="关闭系统")
     log.info("Multimodal agent running — voice loop active")
